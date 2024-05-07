@@ -1,0 +1,34 @@
+# @package _global_
+
+defaults:
+  - override /dataset: arxiv
+  - override /condenser: gcond
+
+condenser:
+  observe_mode: transductive
+  budget: 90
+  label_distribution: original
+  init_method: kCenter
+
+  gnn:
+    _target_: graph_condenser.models.backbones.sgc.SGC
+
+  gnn_val:
+    _target_: graph_condenser.models.evaluators.sgc.SGCEvaluator
+
+  gnn_test:
+    _target_: graph_condenser.models.backbones.sgc.SGC
+
+  opt_adj:
+    lr: 1e-1
+
+  opt_feat:
+    lr: 1e-1
+
+  loop_outer: 5
+  loop_inner: 10
+
+  update_epoch_adj: 10
+  update_epoch_feat: 20
+
+  dis_metric: ours
