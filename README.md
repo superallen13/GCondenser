@@ -16,7 +16,7 @@
 ## Get Started
 `GCondenser` mainly depends on the following packages:
 ```
-dgl
+dgl  # If you prefer torch_geometric, please check out our pyg branch.
 torch
 pytorch-lightning
 ogb  # fetech ogb datasets
