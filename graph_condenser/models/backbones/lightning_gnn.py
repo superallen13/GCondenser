@@ -17,11 +17,11 @@ class LightningGNN(pl.LightningModule):
             task="multiclass", num_classes=backbone.out_size, average=None
         )
 
-    def forward(self, g, features, edge_weight=None):
-        return self.backbone(g, features, edge_weight)
+    def forward(self, x, edge_index, edge_weight=None):
+        return self.backbone(x, edge_index, edge_weight)
 
-    def encode(self, g, features, edge_weight=None):
-        return self.backbone.encode(g, features, edge_weight)
+    def encode(self, x, edge_index, edge_weight=None):
+        return self.backbone.encode(x, edge_index, edge_weight)
 
     def on_train_start(self):
         """Lightning hook that is called when training begins."""
@@ -31,9 +31,9 @@ class LightningGNN(pl.LightningModule):
         self.val_acc_best.reset()
 
     def training_step(self, data, batch_idx):
-        edge_weight = data.edata["weight"] if "weight" in data.edata else None
-        y_hat = self(data, data.ndata["feat"], edge_weight)[data.ndata["train_mask"]]
-        y = data.ndata["label"][data.ndata["train_mask"]]
+        edge_weight = data.edge_weight if data.edge_weight is not None else None
+        y_hat = self(data.x, data.edge_index, edge_weight)[data.train_mask]
+        y = data.y[data.train_mask]
         loss = F.cross_entropy(y_hat, y)
         self.train_acc(y_hat.softmax(dim=-1), y)
         self.log(
@@ -42,9 +42,9 @@ class LightningGNN(pl.LightningModule):
         return loss
 
     def validation_step(self, data, batch_idx):
-        edge_weight = data.edata["weight"] if "weight" in data.edata else None
-        y_hat = self(data, data.ndata["feat"], edge_weight)[data.ndata["val_mask"]]
-        y = data.ndata["label"][data.ndata["val_mask"]]
+        edge_weight = data.edge_weight if data.edge_weight is not None else None
+        y_hat = self(data.x, data.edge_index, edge_weight)[data.val_mask]
+        y = data.y[data.val_mask]
         val_acc = self.val_acc(y_hat.softmax(dim=-1), y)
         self.val_acc_best(val_acc)
 
@@ -65,9 +65,9 @@ class LightningGNN(pl.LightningModule):
         )
 
     def test_step(self, data, batch_idx):
-        edge_weight = data.edata["weight"] if "weight" in data.edata else None
-        y_hat = self(data, data.ndata["feat"], edge_weight)[data.ndata["test_mask"]]
-        y = data.ndata["label"][data.ndata["test_mask"]]
+        edge_weight = data.edge_weight if data.edge_weight is not None else None
+        y_hat = self(data.x, data.edge_index, edge_weight)[data.test_mask]
+        y = data.y[data.test_mask]
         self.test_acc(y_hat.softmax(dim=-1), y)
         self.log("test_acc", self.test_acc, prog_bar=True, on_step=False, on_epoch=True)
         return self.test_acc

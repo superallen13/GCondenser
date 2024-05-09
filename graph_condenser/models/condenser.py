@@ -7,8 +7,6 @@ from graph_condenser.models.evaluators.sgc import SGCEvaluator
 from graph_condenser.models.evaluators.lightning_evaluator import LightningEvaluator
 from graph_condenser.models.components.gntk import GNTK
 
-
-import dgl
 import hydra
 import torch
 import torch.nn.functional as F
@@ -21,7 +19,7 @@ from torchmetrics import MaxMetric
 class Condenser(LightningModule):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        dataset,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -39,13 +37,13 @@ class Condenser(LightningModule):
             logger=False, ignore=["dataset", "gnn_val", "gnn_test"]
         )
         self.automatic_optimization = False
-        self.num_node_features = dataset[0].ndata["feat"].shape[1]
+        self.num_node_features = dataset.num_features
         self.num_classes = dataset.num_classes
 
         # Initilaise the condensed graph.
         self.npc = get_npc(dataset, budget, label_distribution)
         self.g_cond = get_g_cond(dataset, observe_mode, self.npc, init_method)
-        self.feat_cond = self.g_cond.ndata["feat"]
+        self.feat_cond = self.g_cond.x
 
         # instantiate the GNNs in the validation and test steps
         self.gnn_val = gnn_val
@@ -70,11 +68,9 @@ class Condenser(LightningModule):
 
     def validation_step(self, data, batch_idx):
         g_cond = self.g_cond.to(self.device)
-        g_cond.ndata["feat"] = self.feat_cond.data.clone()
+        g_cond.x = self.feat_cond.data.clone()
         if getattr(self, "structure_generator", None) is not None:
-            g_cond.edata["weight"] = self.structure_generator.inference(
-                g_cond.ndata["feat"]
-            )
+            g_cond.edge_weight = self.structure_generator.inference(g_cond.x)
 
         if self.hparams.val_mode == "GNN":
             gnn_val = self.gnn_val(self.num_node_features, self.num_classes)
@@ -126,7 +122,7 @@ class Condenser(LightningModule):
         elif self.hparams.val_mode == "GNTK":
             gntk = GNTK(num_layers=3, num_mlp_layers=2, scale="degree")
 
-            data_val = dgl.node_subgraph(data, data.ndata["val_mask"])
+            data_val = data.subgraph(data.ndata["val_mask"])
             num_nodes = data_val.num_nodes()
 
             if num_nodes > 5000:
@@ -150,7 +146,7 @@ class Condenser(LightningModule):
                         nodes[torch.randperm(len(nodes))[: num_per_class[i]]]
                     )
                 random_nodes = torch.cat(random_nodes)
-                random_val_g = dgl.node_subgraph(data, random_nodes)
+                random_val_g = data.subgraph(random_nodes)
                 feat_val = random_val_g.ndata["feat"]
                 adj_val = torch.zeros(5000, 5000).to(self.device)
                 src, dst = random_val_g.edges()
@@ -201,19 +197,17 @@ class Condenser(LightningModule):
         # save the g_cond
         g_cond = self.g_cond
         feat_cond = self.feat_cond
-        g_cond.ndata["feat"] = feat_cond.to("cpu").data.clone()
+        g_cond.x = feat_cond.to("cpu").data.clone()
         if getattr(self, "structure_generator", None) is not None:
             edge_weight = self.structure_generator.inference(feat_cond)
-            g_cond.edata["weight"] = edge_weight.to("cpu")
+            g_cond.edge_weight = edge_weight.to("cpu")
         checkpoint["g_cond"] = g_cond
 
     def test_step(self, data, batch_idx):
         g_cond = self.g_cond.to(self.device)
-        g_cond.ndata["feat"] = self.feat_cond.data.clone()
+        g_cond.x = self.feat_cond.data.clone()
         if getattr(self, "structure_generator", None) is not None:
-            g_cond.edata["weight"] = self.structure_generator.inference(
-                g_cond.ndata["feat"]
-            )
+            g_cond.edge_weight = self.structure_generator.inference(g_cond.x)
 
         datamodule = CondensedGraphDataModule(g_cond, data, self.hparams.observe_mode)
         torch.set_grad_enabled(True)  # enable gradients for the test step

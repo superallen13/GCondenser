@@ -3,9 +3,8 @@ import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from graph_condenser.models.backbones.gnn import GNN
 
-import dgl.nn as dglnn
-import torch
 import torch.nn.functional as F
+import torch_geometric.nn as pygnn
 
 
 class SGC(GNN):
@@ -18,18 +17,18 @@ class SGC(GNN):
         dropout: float = 0.5,
     ):
         super().__init__(in_size, out_size)
-        self.layers.append(dglnn.SGConv(in_size, out_size, k=nlayers))
-        
-    def forward(self, g, features, edge_weight=None):
-        h = features
+        self.layers.append(pygnn.SGConv(in_size, out_size, K=nlayers))
+
+    def forward(self, x, edge_index, edge_weight=None):
+        h = x
         for i, layer in enumerate(self.layers):
-            h = layer(g, h, edge_weight=edge_weight)
+            h = layer(h, edge_index, edge_weight=edge_weight)
             if i != len(self.layers) - 1:
                 h = self.dropout(h)
         return h
 
-    def encode(self, g, features, edge_weight=None):
-        return self.layers[0](g, features, edge_weight=edge_weight)
+    def encode(self, x, edge_index, edge_weight=None):
+        return self.layers[0](x, edge_index, edge_weight=edge_weight)
 
 
 def main():
@@ -65,7 +64,7 @@ def main():
         graph = dataset[0]
 
         datamodule = DataModule(graph, observe_mode=args.observe_mode)
-        gcn = SGC(graph.ndata["feat"].size(1), dataset.num_classes)
+        gcn = SGC(graph.x.size(1), dataset.num_classes)
 
         model = LightningGNN(gcn, lr=0.01, wd=5e-4)
         checkpoint_callback = ModelCheckpoint(mode="max", monitor="val_acc")

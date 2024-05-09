@@ -5,8 +5,8 @@ from graph_condenser.models.backbones.gnn import GNN
 
 import torch
 import torch.nn as nn
-import dgl.nn as dglnn
 import torch.nn.functional as F
+import torch_geometric.nn as pygnn
 
 
 class SAGE(GNN):
@@ -20,12 +20,12 @@ class SAGE(GNN):
     ):
         super().__init__(in_size, out_size)
         if nlayers == 1:
-            self.layers.append(dglnn.SAGEConv(in_size, out_size, aggregator_type="mean"))
+            self.layers.append(pygnn.SAGEConv(in_size, out_size, aggregator_type="mean"))
         else:
-            self.layers.append(dglnn.SAGEConv(in_size, hid_size, aggregator_type="mean"))
+            self.layers.append(pygnn.SAGEConv(in_size, hid_size, aggregator_type="mean"))
             for _ in range(nlayers - 2):
-                self.layers.append(dglnn.SAGEConv(hid_size, hid_size, aggregator_type="mean"))
-            self.layers.append(dglnn.SAGEConv(hid_size, out_size, aggregator_type="mean"))
+                self.layers.append(pygnn.SAGEConv(hid_size, hid_size, aggregator_type="mean"))
+            self.layers.append(pygnn.SAGEConv(hid_size, out_size, aggregator_type="mean"))
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, g, features, edge_weight=None):

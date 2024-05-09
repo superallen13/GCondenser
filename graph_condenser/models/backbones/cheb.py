@@ -2,8 +2,8 @@ from graph_condenser.models.backbones.gnn import GNN
 
 import torch
 import torch.nn as nn
-import dgl.nn as dglnn
 import torch.nn.functional as F
+import torch_geometric.nn as pygnn
 
 class ChebNet(GNN):
     def __init__(
@@ -16,12 +16,12 @@ class ChebNet(GNN):
     ):
         super().__init__(in_size, out_size)
         if nlayers == 1:
-            self.layers.append(dglnn.ChebConv(in_size, out_size, 2))
+            self.layers.append(pygnn.ChebConv(in_size, out_size, 2))
         else:
-            self.layers.append(dglnn.ChebConv(in_size, hid_size, 2))
+            self.layers.append(pygnn.ChebConv(in_size, hid_size, 2))
             for _ in range(nlayers - 2):
-                self.layers.append(dglnn.ChebConv(hid_size, hid_size, 2))
-            self.layers.append(dglnn.ChebConv(hid_size, out_size, 2))
+                self.layers.append(pygnn.ChebConv(hid_size, hid_size, 2))
+            self.layers.append(pygnn.ChebConv(hid_size, out_size, 2))
         self.dropout = nn.Dropout(dropout)
     
     def forward(self, g, features, edge_weight=None):

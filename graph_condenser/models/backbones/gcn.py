@@ -3,10 +3,9 @@ import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from graph_condenser.models.backbones.gnn import GNN
 
-import torch
 import torch.nn as nn
-import dgl.nn as dglnn
 import torch.nn.functional as F
+import torch_geometric.nn as pygnn
 
 
 class GCN(GNN):
@@ -20,27 +19,27 @@ class GCN(GNN):
     ):
         super().__init__(in_size, out_size)
         if nlayers == 1:
-            self.layers.append(dglnn.SGConv(in_size, out_size))
+            self.layers.append(pygnn.SGConv(in_size, out_size))
         else:
-            self.layers.append(dglnn.SGConv(in_size, hid_size))
+            self.layers.append(pygnn.SGConv(in_size, hid_size))
             for _ in range(nlayers - 2):
-                self.layers.append(dglnn.SGConv(hid_size, hid_size))
-            self.layers.append(dglnn.SGConv(hid_size, out_size))
+                self.layers.append(pygnn.SGConv(hid_size, hid_size))
+            self.layers.append(pygnn.SGConv(hid_size, out_size))
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, g, features, edge_weight=None):
-        h = features
+    def forward(self, x, edge_index, edge_weight=None):
+        h = x
         for i, layer in enumerate(self.layers):
-            h = layer(g, h, edge_weight=edge_weight)
+            h = layer(h, edge_index, edge_weight=edge_weight)
             if i != len(self.layers) - 1:
                 h = F.relu(h)
                 h = self.dropout(h)
         return h
 
-    def encode(self, g, features, edge_weight=None):
-        h = features
+    def encode(self, x, edge_index, edge_weight=None):
+        h = x
         for layer in self.layers[:-1]:
-            h = layer(g, h, edge_weight=edge_weight)
+            h = layer(h, edge_index, edge_weight=edge_weight)
             h = F.relu(h)
         return h
 
@@ -52,7 +51,7 @@ def main():
     import os
     import time
 
-    from graph_condenser.data.utils import get_dataset, dataset_statistic
+    from graph_condenser.data.utils import get_dataset
     from graph_condenser.data.datamodule import DataModule
     from graph_condenser.models.backbones.lightning_gnn import LightningGNN
 
@@ -67,19 +66,16 @@ def main():
     parser.add_argument("--repeat", type=int, default=5)
     args = parser.parse_args()
 
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
+    logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
     logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    logging.getLogger("lightning").setLevel(logging.WARNING)
 
     results = []
-    # dataset_statistic([args.dataset])
     dataset = get_dataset(args.dataset, args.data_dir)
     graph = dataset[0]
     datamodule = DataModule(graph, observe_mode=args.observe_mode)
     for _ in range(args.repeat):
-        gcn = GCN(graph.ndata["feat"].size(1), dataset.num_classes)
-        model = LightningGNN(gcn, lr=0.01, wd=5e-4)
+        gcn = GCN(dataset.num_features, dataset.num_classes)
+        model = LightningGNN(gcn, lr=0.001, wd=5e-4)
         checkpoint_callback = ModelCheckpoint(mode="max", monitor="val_acc")
         trainer = Trainer(
             accelerator="gpu" if torch.cuda.is_available() else "cpu",

@@ -4,7 +4,6 @@ from graph_condenser.models.condenser import Condenser
 from graph_condenser.models.components.trajectories import TrajectoryBuffer
 from graph_condenser.models.components.reparam_module import ReparamModule
 
-import dgl
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -13,7 +12,7 @@ import torch.nn.functional as F
 class SFGC(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        dataset,
         observe_mode: str,
         budget: int,
         label_distribution: str,

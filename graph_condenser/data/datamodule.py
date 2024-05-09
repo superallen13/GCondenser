@@ -1,4 +1,3 @@
-import dgl
 import torch
 from pytorch_lightning import LightningDataModule
 
@@ -14,28 +13,22 @@ class DataModule(LightningDataModule):
         if self.transductive:
             return torch.utils.data.DataLoader([self.g], collate_fn=lambda xs: xs[0])
         else:
-            seen_data = dgl.node_subgraph(self.g, self.g.ndata["train_mask"])
-            return torch.utils.data.DataLoader(
-                [seen_data], collate_fn=lambda xs: xs[0]
-            )
+            seen_data = self.g.subgraph(self.g.train_mask)
+            return torch.utils.data.DataLoader([seen_data], collate_fn=lambda xs: xs[0])
 
     def val_dataloader(self):
         if self.transductive:
             return torch.utils.data.DataLoader([self.g], collate_fn=lambda xs: xs[0])
         else:
-            seen_data = dgl.node_subgraph(self.g, self.g.ndata["val_mask"])
-            return torch.utils.data.DataLoader(
-                [seen_data], collate_fn=lambda xs: xs[0]
-            )
+            seen_data = self.g.subgraph(self.g.val_mask)
+            return torch.utils.data.DataLoader([seen_data], collate_fn=lambda xs: xs[0])
 
     def test_dataloader(self):
         if self.transductive:
             return torch.utils.data.DataLoader([self.g], collate_fn=lambda xs: xs[0])
         else:
-            seen_data = dgl.node_subgraph(self.g, self.g.ndata["test_mask"])
-            return torch.utils.data.DataLoader(
-                [seen_data], collate_fn=lambda xs: xs[0]
-            )
+            seen_data = self.g.subgraph(self.g.test_mask)
+            return torch.utils.data.DataLoader([seen_data], collate_fn=lambda xs: xs[0])
 
 
 class CondensedGraphDataModule(LightningDataModule):
@@ -55,7 +48,7 @@ class CondensedGraphDataModule(LightningDataModule):
                 [self.g_orig], collate_fn=lambda xs: xs[0]
             )
         else:
-            data = dgl.node_subgraph(self.g_orig, self.g_orig.ndata["val_mask"])
+            data = self.g_orig.subgraph(self.g_orig.val_mask)
             return torch.utils.data.DataLoader([data], collate_fn=lambda xs: xs[0])
 
     def test_dataloader(self):
@@ -64,7 +57,7 @@ class CondensedGraphDataModule(LightningDataModule):
                 [self.g_orig], collate_fn=lambda xs: xs[0]
             )
         else:
-            data = dgl.node_subgraph(self.g_orig, self.g_orig.ndata["test_mask"])
+            data = self.g_orig(self.g_orig.test_mask)
             return torch.utils.data.DataLoader([data], collate_fn=lambda xs: xs[0])
 
 
@@ -79,14 +72,14 @@ class GraphCondenserDataModule(LightningDataModule):
         if self.observe_mode == "transductive":
             seen_orig = self.g_orig
         else:
-            seen_orig = dgl.node_subgraph(self.g_orig, self.g_orig.ndata["train_mask"])
+            seen_orig = self.g_orig(self.g_orig.train_mask)
         return torch.utils.data.DataLoader([seen_orig], collate_fn=lambda xs: xs[0])
 
     def val_dataloader(self):
         if self.observe_mode == "transductive":
             seen_orig = self.g_orig
         else:
-            seen_orig = dgl.node_subgraph(self.g_orig, self.g_orig.ndata["val_mask"])
+            seen_orig = self.g_orig(self.g_orig.val_mask)
         return torch.utils.data.DataLoader([seen_orig], collate_fn=lambda xs: xs[0])
 
     def test_dataloader(self):

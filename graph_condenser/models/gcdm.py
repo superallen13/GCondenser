@@ -1,6 +1,5 @@
 from graph_condenser.models.condenser import Condenser
 
-import dgl
 import torch
 
 
@@ -12,7 +11,7 @@ def mean_emb(emb, y):
 class GCDM(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        dataset,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -53,23 +52,23 @@ class GCDM(Condenser):
             self.structure_generator = None
         else:
             # change the condensed graph to the fully connected graph.
-            self.g_cond.remove_edges(list(range(self.g_cond.number_of_edges())))
             i, j = torch.meshgrid(
                 torch.arange(budget), torch.arange(budget), indexing="ij"
             )
-            self.g_cond.add_edges(i.flatten(), j.flatten())
-            assert self.g_cond.number_of_edges() == budget**2
+            self.g_cond.edge_index = torch.stack([i.flatten(), j.flatten()])
+            assert self.g_cond.edge_index.size(1) == budget**2
             self.structure_generator = structure_generator(self.g_cond)
         self.gnn = gnn
 
+
     def training_step(self, data, batch_idx):
         g = data
-        feat = g.ndata["feat"]
-        label = g.ndata["label"]
+        feat = g.x
+        label = g.y
 
         g_cond = self.g_cond.to(self.device)
-        feat_cond = self.feat_cond  # already on the device
-        label_cond = g_cond.ndata["label"]
+        feat_cond = self.feat_cond
+        label_cond = g_cond.y
 
         gnn = self.gnn(self.num_node_features, self.num_classes).to(self.device)
         model_parameters = list(gnn.parameters())
@@ -82,10 +81,10 @@ class GCDM(Condenser):
             opt_feat, opt_adj = self.optimizers()
 
         with torch.no_grad():
-            emb_orig = gnn.encode(g, feat)
-            mean_emb_orig = mean_emb(
-                emb_orig[g.ndata["train_mask"]], label[g.ndata["train_mask"]]
-            )[torch.unique(label_cond)]
+            emb_orig = gnn.encode(feat, g.edge_index)
+            mean_emb_orig = mean_emb(emb_orig[g.train_mask], label[g.train_mask])[
+                torch.unique(label_cond)
+            ]
 
         losses = []
         for ol in range(self.hparams.loop_outer):
@@ -95,10 +94,11 @@ class GCDM(Condenser):
 
             if self.structure_generator:
                 edge_weight_cond = self.structure_generator(feat_cond)
+                self.g_cond.edge_weight = edge_weight_cond.detach().to("cpu")
             else:
                 edge_weight_cond = None
 
-            emb_cond = gnn.encode(g_cond, feat_cond, edge_weight_cond)
+            emb_cond = gnn.encode(feat_cond, g_cond.edge_index, edge_weight_cond)
             mean_emb_cond = mean_emb(emb_cond, label_cond)
 
             emb_diff = (mean_emb_cond - mean_emb_orig) ** 2
@@ -135,8 +135,11 @@ class GCDM(Condenser):
                 for param in gnn.parameters():
                     param.requires_grad_(True)
 
+
                 for il in range(self.hparams.loop_inner):
-                    emb_cond = gnn.encode(g_cond, feat_cond_inner, edge_weight_cond)
+                    emb_cond = gnn.encode(
+                        feat_cond_inner, g_cond.edge_index, edge_weight_cond
+                    )
                     mean_emb_cond = mean_emb(emb_cond, label_cond)
 
                     emb_diff = (mean_emb_cond - mean_emb_orig) ** 2
@@ -148,10 +151,10 @@ class GCDM(Condenser):
 
                     # Update embedding of the original grpah once the mode is updated.
                     with torch.no_grad():
-                        emb_orig = gnn.encode(g, feat)
+                        emb_orig = gnn.encode(feat, g.edge_index)
                         mean_emb_orig = mean_emb(
-                            emb_orig[g.ndata["train_mask"]],
-                            label[g.ndata["train_mask"]],
+                            emb_orig[g.train_mask],
+                            label[g.train_mask],
                         )[torch.unique(label_cond)]
 
         loss_avg = sum(losses) / len(losses)

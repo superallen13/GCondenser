@@ -1,4 +1,3 @@
-import dgl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,11 +5,11 @@ import torch.nn.functional as F
 
 class StructureGenerator(nn.Module):
 
-    def __init__(self, g: dgl.DGLGraph, hid_size: int = 128, nlayers: int = 3):
+    def __init__(self, g, hid_size: int = 128, nlayers: int = 3):
         super(StructureGenerator, self).__init__()
-        self.edges = g.edges()
+        self.edges = g.edge_index
         self.layers = nn.ModuleList([])
-        self.layers.append(nn.Linear(g.ndata["feat"].shape[1], hid_size))
+        self.layers.append(nn.Linear(g.x.shape[1], hid_size))
         self.bns = torch.nn.ModuleList()
         self.bns.append(nn.BatchNorm1d(hid_size))
         for i in range(nlayers - 2):

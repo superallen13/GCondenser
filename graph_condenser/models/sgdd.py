@@ -1,18 +1,14 @@
 from graph_condenser.models.condenser import Condenser
 from graph_condenser.models.gcond import match_loss
 
-import dgl
-import dgl.nn as dglnn
 import torch
 import torch.nn.functional as F
+from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
 
 def get_adj_norm(g):
-    g = g.add_self_loop()
     if g.num_nodes() > 5000:
-        edge_weight = torch.ones(g.number_of_edges(), device=g.device)
-        norm = dglnn.EdgeWeightNorm(norm="both")
-        edge_weight = norm(g, edge_weight)
+        edge_index, edge_weight = gcn_norm(g.edge_index)
         random_nodes = torch.randperm(g.num_nodes())[:5000].to(g.device)
         adj = torch.zeros((5000, 5000), device=edge_weight.device)
         src, dst = g.edges()
@@ -30,9 +26,7 @@ def get_adj_norm(g):
 
         adj[mapped_src, mapped_dst] = filtered_weights
     else:
-        edge_weight = torch.ones(g.number_of_edges(), device=g.device)
-        norm = dglnn.EdgeWeightNorm(norm="both")
-        edge_weight = norm(g, edge_weight)
+        edge_index, edge_weight = gcn_norm(g.edge_index)
         adj = torch.zeros((g.num_nodes(), g.num_nodes()), device=edge_weight.device)
         src, dst = g.edges()
         adj[src, dst] = edge_weight
@@ -68,7 +62,7 @@ def regularization(adj, x, eig_real=None):
 class SGDD(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        dataset,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -109,10 +103,9 @@ class SGDD(Condenser):
             wd_test,
         )
         # change the condensed graph to the fully connected graph.
-        self.g_cond.remove_edges(list(range(self.g_cond.number_of_edges())))
         i, j = torch.meshgrid(torch.arange(budget), torch.arange(budget), indexing="ij")
-        self.g_cond.add_edges(i.flatten(), j.flatten())
-        assert self.g_cond.number_of_edges() == budget**2
+        self.g_cond.edge_index = torch.stack([i.flatten(), j.flatten()])
+        assert self.g_cond.edge_index.size(1) == budget**2
         self.structure_generator = structure_generator(
             nnodes=self.feat_cond.size(0), nfeat=self.feat_cond.size(1)
         )
@@ -120,12 +113,12 @@ class SGDD(Condenser):
 
     def training_step(self, data, batch_idx):
         g = data
-        feat = g.ndata["feat"]
-        label = g.ndata["label"]
+        feat = g.x
+        label = g.y
 
         g_cond = self.g_cond.to(self.device)
         feat_cond = self.feat_cond
-        label_cond = g_cond.ndata["label"]
+        label_cond = g_cond.y
 
         gnn = self.gnn(self.num_node_features, self.num_classes)
         gnn.to(self.device)
@@ -133,9 +126,7 @@ class SGDD(Condenser):
         opt_model = torch.optim.Adam(model_parameters, lr=self.hparams.lr_model)
         gnn.train()
 
-        class_mask_real = [
-            (label == c) & g.ndata["train_mask"] for c in range(self.num_classes)
-        ]
+        class_mask_real = [(label == c) & g.train_mask for c in range(self.num_classes)]
         class_mask_cond = [(label_cond == c) for c in range(self.num_classes)]
 
         opt_feat, opt_adj = self.optimizers()
@@ -147,7 +138,7 @@ class SGDD(Condenser):
                 feat_cond, Lx=adj_norm
             )
 
-            output = gnn(g, feat)
+            output = gnn(feat, g.edge_index)
             output_cond = gnn(g_cond, feat_cond, edge_weight_cond)
 
             loss = torch.tensor(0.0).to(self.device)

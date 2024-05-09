@@ -1,6 +1,5 @@
 from graph_condenser.models.condenser import Condenser
 
-import dgl
 import torch
 import torch.nn.functional as F
 
@@ -48,7 +47,7 @@ def match_loss(gw_syn, gw_real, dis_metric="ours"):
 class GCond(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        dataset,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -90,23 +89,22 @@ class GCond(Condenser):
             self.structure_generator = None
         else:
             # change the condensed graph to the fully connected graph.
-            self.g_cond.remove_edges(list(range(self.g_cond.number_of_edges())))
             i, j = torch.meshgrid(
                 torch.arange(budget), torch.arange(budget), indexing="ij"
             )
-            self.g_cond.add_edges(i.flatten(), j.flatten())
-            assert self.g_cond.number_of_edges() == budget**2
+            self.g_cond.edge_index = torch.stack([i.flatten(), j.flatten()])
+            assert self.g_cond.edge_index.size(1) == budget**2
             self.structure_generator = structure_generator(self.g_cond)
         self.gnn = gnn
 
     def training_step(self, data, batch_idx):
         g = data
-        feat = g.ndata["feat"]
-        label = g.ndata["label"]
+        feat = g.x
+        label = g.y
 
         g_cond = self.g_cond.to(self.device)
         feat_cond = self.feat_cond
-        label_cond = g_cond.ndata["label"]
+        label_cond = g_cond.y
 
         gnn = self.gnn(self.num_node_features, self.num_classes)
         gnn.to(self.device)
@@ -114,9 +112,7 @@ class GCond(Condenser):
         opt_model = torch.optim.Adam(model_parameters, lr=self.hparams.lr_model)
         gnn.train()
 
-        class_mask_real = [
-            (label == c) & g.ndata["train_mask"] for c in range(self.num_classes)
-        ]
+        class_mask_real = [(label == c) & g.train_mask for c in range(self.num_classes)]
         class_mask_cond = [(label_cond == c) for c in range(self.num_classes)]
 
         if self.structure_generator is None:
@@ -131,8 +127,8 @@ class GCond(Condenser):
             else:
                 edge_weight_cond = None
 
-            output = gnn(g, feat)
-            output_cond = gnn(g_cond, feat_cond, edge_weight_cond)
+            output = gnn(feat, g.edge_index)
+            output_cond = gnn(feat_cond, g_cond.edge_index, edge_weight_cond)
 
             loss = torch.tensor(0.0).to(self.device)
             for i, c in enumerate(range(self.num_classes)):
@@ -182,7 +178,9 @@ class GCond(Condenser):
                     edge_weight_cond = None
                 for il in range(self.hparams.loop_inner):
                     opt_model.zero_grad()
-                    output_cond_inner = gnn(g_cond, feat_cond_inner, edge_weight_cond)
+                    output_cond_inner = gnn(
+                        feat_cond_inner, g_cond.edge_index, edge_weight_cond
+                    )
                     loss_cond_inner = F.cross_entropy(output_cond_inner, label_cond)
                     loss_cond_inner.backward()
                     opt_model.step()

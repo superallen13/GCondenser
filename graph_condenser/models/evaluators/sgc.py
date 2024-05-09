@@ -1,5 +1,5 @@
 import torch.nn as nn
-import dgl.nn as dglnn
+import torch_geometric.nn as pygnn
 
 
 class SGCEvaluator(nn.Module):
@@ -17,19 +17,18 @@ class SGCEvaluator(nn.Module):
         self.out_size = out_size
         self.nlayers = nlayers
 
-        self.sgc_cond = dglnn.SGConv(in_size, out_size, k=nlayers, cached=True)
-        self.sgc_orig = dglnn.SGConv(in_size, out_size, k=nlayers, cached=True)
+        self.sgc_cond = pygnn.SGConv(in_size, out_size, K=nlayers, cached=True)
+        self.sgc_orig = pygnn.SGConv(in_size, out_size, K=nlayers, cached=True)
 
     def reset_parameters(self):
-        self.sgc_cond = dglnn.SGConv(
-            self.in_size, self.out_size, k=self.nlayers, cached=True
+        self.sgc_cond = pygnn.SGConv(
+            self.in_size, self.out_size, K=self.nlayers, cached=True
         )
 
-    def forward(self, g, features, edge_weight=None, g_type="cond"):
+    def forward(self, x, edge_index, edge_weight=None, g_type="cond"):
         if g_type == "cond":
-            return self.sgc_cond(g, features, edge_weight=edge_weight)
+            return self.sgc_cond(x, edge_index, edge_weight=edge_weight)
         elif g_type == "orig":
-            self.sgc_orig.fc = (
-                self.sgc_cond.fc
-            )  # share weights from the condensed model
-            return self.sgc_orig(g, features, edge_weight=edge_weight)
+            # share weights from the condensed model
+            self.sgc_orig.lin = self.sgc_cond.lin
+            return self.sgc_orig(x, edge_index, edge_weight=edge_weight)
