@@ -197,7 +197,7 @@ def _graph_sampling(
         trainer = Trainer(
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
             devices=1,
-            max_epochs=50,
+            max_epochs=100,
             enable_checkpointing=False,
             enable_progress_bar=False,
             enable_model_summary=False,
@@ -229,6 +229,17 @@ def _graph_sampling(
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
         sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
+    elif method == "randomnoise":
+        # TODO simplify this process, currently implementaion is not efficient
+        idx_selected = []
+        classes = g_orig.ndata["label"][g_orig.ndata["train_mask"]].unique()
+        for i, cls in enumerate(classes):
+            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata["train_mask"]
+            ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
+            idx_selected += random.sample(ids_at_cls, k=npc[i])
+        sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
+        # change the sampled_graph's features to ranodm gussain noise
+        sampled_graph.ndata["feat"] = torch.randn_like(sampled_graph.ndata["feat"])
     else:
         raise ValueError("Sampling method is not found.")
     return sampled_graph
