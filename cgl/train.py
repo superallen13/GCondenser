@@ -1,3 +1,4 @@
+import logging
 import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -24,15 +25,13 @@ from omegaconf import DictConfig
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="cgl.yaml")
 def main(cfg):
+    pl.seed_everything(cfg.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset, streaming_datasets = get_streaming_datasets(
         cfg.dataset_name, cfg.dataset_dir, cfg.cls_per_graph, cfg.split_ratio
     )
 
-    gcn = GCN(dataset[0].ndata["feat"].size(1), dataset.num_classes)
-    model = LightningGNN(gcn, lr=0.01, wd=5e-4)
     memory_bank = []
-
-    metrics = []
     for i, incoming_graph in enumerate(streaming_datasets):
         datamodule = GraphCondenserDataModule(incoming_graph[0], cfg.condenser.observe_mode)
         condenser = hydra.utils.instantiate(cfg.condenser, dataset=incoming_graph)
@@ -56,49 +55,53 @@ def main(cfg):
         )
 
         ckpt_path = trainer.checkpoint_callback.best_model_path
-        memory_bank.append(torch.load(ckpt_path)["g_cond"])
+        g_cond = torch.load(ckpt_path)["g_cond"]
+        memory_bank.append(g_cond)
 
     metrics = []
-    for i, incoming_graph in enumerate(streaming_datasets):
+    model = GCN(dataset[0].ndata["feat"].size(1), dataset.num_classes).to(device)
+    optimiser = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    criterion = torch.nn.CrossEntropyLoss()
+    for j in range(len(streaming_datasets)):
         # use the condense and train (CaT) framework to train the model
         # train the model with the memory bank
-        memory_graph = dgl.batch(memory_bank)
-        datamodule = CondensedGraphDataModule(memory_graph, incoming_graph[0])
+        memory_graph = dgl.batch(memory_bank[: j + 1]).to(device)
 
-        checkpoint_callback = ModelCheckpoint(mode="max", monitor="val_acc")
-        trainer = Trainer(
-            accelerator="gpu" if torch.cuda.is_available() else "cpu",
-            devices=1,
-            max_epochs=200,
-            check_val_every_n_epoch=1,
-            callbacks=checkpoint_callback,
-            enable_model_summary=False,
-            logger=False,
-        )
-        trainer.fit(model, datamodule)
-
-        # test the model
-        ckpt_path = trainer.checkpoint_callback.best_model_path
-        model = LightningGNN.load_from_checkpoint(ckpt_path, backbone=gcn)
+        for _ in range(200):
+            out = model(memory_graph, memory_graph.ndata["feat"])[:, : cfg.cls_per_graph * (j + 1)]
+            loss = criterion(out, memory_graph.ndata["label"])
+            optimiser.zero_grad()
+            loss.backward()
+            optimiser.step()
 
         performance, forgetting = [], []
         # calculate average performance and average forgetting.
-        for j, test_graph in enumerate(streaming_datasets[: i + 1]):
-            g = test_graph[0].to(model.device)
-            logits = model(g, g.ndata["feat"])[:, : cfg.cls_per_graph * (i + 1) + 1]
+        for k, test_graph in enumerate(streaming_datasets[: j + 1]):
+            g = test_graph[0].to(device)
+            logits = model(g, g.ndata["feat"])[:, : cfg.cls_per_graph * (j + 1)]
             predict = logits.argmax(dim=-1)[g.ndata["test_mask"]]
             acc = (predict == g.ndata["label"][g.ndata["test_mask"]]).float().mean()
             performance.append(acc)
 
-            print(f"Task {j}: {acc:.4f}  ", end="")
+            print(f"Task {j:2d}: {acc * 100:.2f}|", end="")
 
-            if i > 0 and j < i:
-                forgetting.append(acc - metrics[-1][j])
+            if j > 0 and k < j:
+                forgetting.append(acc - metrics[-1][k])
         metrics.append(performance)
         AP = sum(performance) / len(performance)
         AF = sum(forgetting) / len(forgetting) if forgetting else 0
-        print(f"AP: {AP:.4f}, AF: {AF:.4f}")
+        print(f"AP: {AP * 100:.2f}, AF: {AF * 100:.2f}")
 
 
 if __name__ == "__main__":
+    logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
+    logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
+
+    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
+    logging.getLogger("lightning.pytorch.accelerators.cuda").setLevel(logging.WARNING)
+
+    # suppress a warning "SLUM auto-requeueing enabled. Setting signal handlers."
+    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
+    logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
+
     main()

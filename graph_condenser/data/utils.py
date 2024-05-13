@@ -154,36 +154,6 @@ def get_dataset(dataset_name, data_dir):
     return dataset
 
 
-# def get_npc(dataset, budget, label_distribution):  # npc means nodes per class
-#     assert label_distribution in ["balanced", "original", "strict"]
-#     g = dataset[0]
-#     y_train = g.ndata["label"][g.ndata["train_mask"]]
-#     classes = range(dataset.num_classes)
-#     if label_distribution == "balanced":
-#         cls_ratios = [1 / len(classes) for _ in classes]
-#     elif label_distribution == "original":
-#         cls_ratios = [(y_train == cls).float().mean().item() for cls in classes]
-#     elif label_distribution == "strict":
-#         cls_ratios = [(y_train == cls).float().mean().item() for cls in classes]
-#         expected_npc = [budget * ratio for ratio in cls_ratios]
-#         npc_rounded = [round(npc) for npc in expected_npc]
-#         gap = budget - sum(npc_rounded)
-#         ratio_diffs = [
-#             (i, abs(npc_rounded[i] - expected_npc[i])) for i in range(len(classes))
-#         ]
-#         ratio_diffs.sort(key=lambda x: x[1], reverse=True)
-#         for i in range(abs(gap)):
-#             class_index = ratio_diffs[i][0]
-#             npc_rounded[class_index] += 1 if gap > 0 else -1
-#         assert budget - sum(npc_rounded) == 0
-#         return npc_rounded
-#     # some class may have 0 training samples (e.g., ogbn-products)
-#     npc = [max(1, int(budget * ratio)) if ratio != 0 else 0 for ratio in cls_ratios]
-#     gap = budget - sum(npc)
-#     npc[npc.index(max(npc))] += gap
-#     return npc
-
-
 def get_npc(dataset, budget, label_distribution):
     assert label_distribution in ["balanced", "original"]
     g = dataset[0]
