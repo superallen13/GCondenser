@@ -268,8 +268,8 @@ def _graph_sampling(
         sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
     elif method == "randomchoice":
         idx_selected = []
-        classes = g_orig.ndata["label"][g_orig.ndata["train_mask"]].unique()
-        for i, cls in enumerate(classes):
+        classes = dataset.num_classes
+        for i, cls in enumerate(range(classes)):
             train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata[
                 "train_mask"
             ]

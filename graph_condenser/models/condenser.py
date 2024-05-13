@@ -57,7 +57,8 @@ class Condenser(LightningModule):
         hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
         output_dir = hydra_cfg["runtime"]["output_dir"]
         self.test_ckpt_dir = os.path.join(output_dir, "test_step_ckpt")
-        os.makedirs(self.test_ckpt_dir)
+        if not os.path.exists(self.test_ckpt_dir):
+            os.makedirs(self.test_ckpt_dir)
 
     def forward(self):
         raise NotImplementedError

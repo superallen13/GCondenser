@@ -85,7 +85,7 @@ class GCDM(Condenser):
             emb_orig = gnn.encode(g, feat)
             mean_emb_orig = mean_emb(
                 emb_orig[g.ndata["train_mask"]], label[g.ndata["train_mask"]]
-            )[torch.unique(label_cond)]
+            )
 
         losses = []
         for ol in range(self.hparams.loop_outer):
@@ -97,7 +97,6 @@ class GCDM(Condenser):
                 edge_weight_cond = self.structure_generator(feat_cond)
             else:
                 edge_weight_cond = None
-
             emb_cond = gnn.encode(g_cond, feat_cond, edge_weight_cond)
             mean_emb_cond = mean_emb(emb_cond, label_cond)
 
