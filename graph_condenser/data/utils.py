@@ -1,11 +1,13 @@
 import random
 import logging
 from typing import List
+from collections import Counter
 
 from graph_condenser.data.datamodule import DataModule, CondensedGraphDataModule
 from graph_condenser.models.backbones.gcn import GCN
 from graph_condenser.models.backbones.lightning_gnn import LightningGNN
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import dgl
@@ -152,33 +154,76 @@ def get_dataset(dataset_name, data_dir):
     return dataset
 
 
-def get_npc(dataset, budget, label_distribution):  # npc means nodes per class
-    assert label_distribution in ["balanced", "original", "strict"]
+# def get_npc(dataset, budget, label_distribution):  # npc means nodes per class
+#     assert label_distribution in ["balanced", "original", "strict"]
+#     g = dataset[0]
+#     y_train = g.ndata["label"][g.ndata["train_mask"]]
+#     classes = range(dataset.num_classes)
+#     if label_distribution == "balanced":
+#         cls_ratios = [1 / len(classes) for _ in classes]
+#     elif label_distribution == "original":
+#         cls_ratios = [(y_train == cls).float().mean().item() for cls in classes]
+#     elif label_distribution == "strict":
+#         cls_ratios = [(y_train == cls).float().mean().item() for cls in classes]
+#         expected_npc = [budget * ratio for ratio in cls_ratios]
+#         npc_rounded = [round(npc) for npc in expected_npc]
+#         gap = budget - sum(npc_rounded)
+#         ratio_diffs = [
+#             (i, abs(npc_rounded[i] - expected_npc[i])) for i in range(len(classes))
+#         ]
+#         ratio_diffs.sort(key=lambda x: x[1], reverse=True)
+#         for i in range(abs(gap)):
+#             class_index = ratio_diffs[i][0]
+#             npc_rounded[class_index] += 1 if gap > 0 else -1
+#         assert budget - sum(npc_rounded) == 0
+#         return npc_rounded
+#     # some class may have 0 training samples (e.g., ogbn-products)
+#     npc = [max(1, int(budget * ratio)) if ratio != 0 else 0 for ratio in cls_ratios]
+#     gap = budget - sum(npc)
+#     npc[npc.index(max(npc))] += gap
+#     return npc
+
+
+def get_npc(dataset, budget, label_distribution):
+    assert label_distribution in ["balanced", "original"]
     g = dataset[0]
     y_train = g.ndata["label"][g.ndata["train_mask"]]
-    classes = range(dataset.num_classes)
+    classes = np.unique(y_train)
+    class_count = Counter(y_train.tolist())
     if label_distribution == "balanced":
-        cls_ratios = [1 / len(classes) for _ in classes]
+        cls_ratios = {cls: 1 / len(classes) for cls in classes}
+        npc = [int(budget * cls_ratios.get(c, 0)) for c in range(dataset.num_classes)]
+        gap = budget - sum(npc)  # gap should between 0 and num_classes (inclusive)
+
+        # select the most gap frequent classes and plus 1
+        for c, _ in class_count.most_common(gap):
+            npc[c] += 1
     elif label_distribution == "original":
-        cls_ratios = [(y_train == cls).float().mean().item() for cls in classes]
-    elif label_distribution == "strict":
-        cls_ratios = [(y_train == cls).float().mean().item() for cls in classes]
-        expected_npc = [budget * ratio for ratio in cls_ratios]
-        npc_rounded = [round(npc) for npc in expected_npc]
-        gap = budget - sum(npc_rounded)
-        ratio_diffs = [
-            (i, abs(npc_rounded[i] - expected_npc[i])) for i in range(len(classes))
+        class_ratios = {cls: count / len(y_train) for cls, count in class_count.items()}
+        # for each existing class in the classes, at least one node.
+        npc = [
+            max(1, int(budget * class_ratios[c])) if c in class_count else 0
+            for c in range(dataset.num_classes)
         ]
-        ratio_diffs.sort(key=lambda x: x[1], reverse=True)
-        for i in range(abs(gap)):
-            class_index = ratio_diffs[i][0]
-            npc_rounded[class_index] += 1 if gap > 0 else -1
-        assert budget - sum(npc_rounded) == 0
-        return npc_rounded
-    # some class may have 0 training samples (e.g., ogbn-products)
-    npc = [max(1, int(budget * ratio)) if ratio != 0 else 0 for ratio in cls_ratios]
-    gap = budget - sum(npc)
-    npc[npc.index(max(npc))] += gap
+        gap = budget - sum(npc)  # gap can be negative if budget is too small
+
+        # match sure the label distribution is as close as possible to the original distribution
+        if gap < 0:
+            for _ in range(-gap):
+                new_cls_ratios = {c: npc[c] / budget for c in classes}
+                diff = {c: new_cls_ratios[c] - class_ratios[c] for c in classes}
+                # find the c which is the class with the largest difference but npc[c] must be greater than 1
+                for c in sorted(diff, key=diff.get, reverse=True):
+                    if npc[c] > 1:
+                        npc[c] -= 1
+                        break
+        elif gap > 0:
+            for _ in range(gap):
+                new_cls_ratios = {c: npc[c] / budget for c in classes}
+                diff = {c: new_cls_ratios[c] - class_ratios[c] for c in classes}
+                c = max(diff, key=diff.get)
+                npc[c] += 1
+    assert sum(npc) == budget
     return npc
 
 
@@ -225,7 +270,9 @@ def _graph_sampling(
         idx_selected = []
         classes = g_orig.ndata["label"][g_orig.ndata["train_mask"]].unique()
         for i, cls in enumerate(classes):
-            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata["train_mask"]
+            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata[
+                "train_mask"
+            ]
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
         sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
@@ -234,7 +281,9 @@ def _graph_sampling(
         idx_selected = []
         classes = g_orig.ndata["label"][g_orig.ndata["train_mask"]].unique()
         for i, cls in enumerate(classes):
-            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata["train_mask"]
+            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata[
+                "train_mask"
+            ]
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
         sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
