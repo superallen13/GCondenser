@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+  - condenser: dm
+  - callbacks: default
+  - trainer: default
+  - paths: default
+  
+dataset_name: "arxiv"
+dataset_dir: "data"
+cls_per_graph: 2
+split_ratio: 0.6
