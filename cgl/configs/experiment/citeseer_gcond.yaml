@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - override /condenser: gcond
+  
+seed: 1024
+dataset_name: "citeseer"
+
+condenser:
+  budget: 10
+  init_method: randomChoice
+
+  opt_adj:
+    lr: 1e-5
+
+  opt_feat:
+    lr: 1e-5
+
+  loop_outer: 10
+  loop_inner: 1
