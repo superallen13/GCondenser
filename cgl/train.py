@@ -1,39 +1,59 @@
+import os
 import logging
 import rootutils
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from data.utils import get_streaming_datasets
-from graph_condenser.models.backbones.gcn import GCN
-from graph_condenser.models.backbones.lightning_gnn import LightningGNN
-from graph_condenser.data.datamodule import GraphCondenserDataModule, CondensedGraphDataModule
+from graph_condenser.data.datamodule import (
+    GraphCondenserDataModule,
+)
 from graph_condenser.utils import (
     instantiate_callbacks,
     instantiate_loggers,
 )
 
-import dgl
+import wandb
 import hydra
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning import LightningModule, Callback, Trainer
-from pytorch_lightning.loggers import Logger
 from pytorch_lightning.callbacks import Timer
-from pytorch_lightning.profilers import SimpleProfiler
-from omegaconf import DictConfig
+import omegaconf
 
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="cgl.yaml")
 def main(cfg):
     pl.seed_everything(cfg.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset, streaming_datasets = get_streaming_datasets(
-        cfg.dataset_name, cfg.dataset_dir, cfg.cls_per_graph, cfg.split_ratio
+
+    hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
+    output_dir = hydra_cfg["runtime"]["output_dir"]
+
+    if cfg.wandb:
+        config = omegaconf.OmegaConf.to_container(
+            cfg, resolve=True, throw_on_missing=True
+        )
+        wandb.init(
+            project="GCB_CGL",
+            group=f"${cfg.dataset_name}_${cfg.condenser.budget}_${cfg.condenser.init_method}_${hydra_cfg['runtime']['choices']['condenser']}",
+            config=config,
+        )
+
+    streaming_data_path = os.path.join(
+        cfg.dataset_dir, "streaming", f"{cfg.dataset_name}"
     )
+    # if streaming_data_path does not exist, use the get method
+    if not os.path.exists(streaming_data_path):
+        streaming_datasets = get_streaming_datasets(
+            cfg.dataset_name, cfg.dataset_dir, cfg.cls_per_graph, cfg.split_ratio
+        )
+        torch.save(streaming_datasets, streaming_data_path)
+    else:
+        streaming_datasets = torch.load(streaming_data_path)
 
     memory_bank = []
-    for i, incoming_graph in enumerate(streaming_datasets):
-        datamodule = GraphCondenserDataModule(incoming_graph[0], cfg.condenser.observe_mode)
+    for incoming_graph in streaming_datasets:
+        datamodule = GraphCondenserDataModule(
+            incoming_graph[0], cfg.condenser.observe_mode
+        )
         condenser = hydra.utils.instantiate(cfg.condenser, dataset=incoming_graph)
         callbacks = instantiate_callbacks(cfg.get("callbacks"))
         timer = Timer()
@@ -58,40 +78,11 @@ def main(cfg):
         g_cond = torch.load(ckpt_path)["g_cond"]
         memory_bank.append(g_cond)
 
-    metrics = []
-    model = GCN(dataset[0].ndata["feat"].size(1), dataset.num_classes).to(device)
-    optimiser = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-    criterion = torch.nn.CrossEntropyLoss()
-    for j in range(len(streaming_datasets)):
-        # use the condense and train (CaT) framework to train the model
-        # train the model with the memory bank
-        memory_graph = dgl.batch(memory_bank[: j + 1]).to(device)
+    # save the memory bank to the output dir
+    torch.save(memory_bank, os.path.join(output_dir, "memory_bank.pt"))
 
-        for _ in range(200):
-            out = model(memory_graph, memory_graph.ndata["feat"])[:, : cfg.cls_per_graph * (j + 1)]
-            loss = criterion(out, memory_graph.ndata["label"])
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
-
-        performance, forgetting = [], []
-        # calculate average performance and average forgetting.
-        for k, test_graph in enumerate(streaming_datasets[: j + 1]):
-            g = test_graph[0].to(device)
-            logits = model(g, g.ndata["feat"])[:, : cfg.cls_per_graph * (j + 1)]
-            predict = logits.argmax(dim=-1)[g.ndata["test_mask"]]
-            acc = (predict == g.ndata["label"][g.ndata["test_mask"]]).float().mean()
-            performance.append(acc)
-
-            print(f"Task {j:2d}: {acc * 100:.2f}|", end="")
-
-            if j > 0 and k < j:
-                forgetting.append(acc - metrics[-1][k])
-        metrics.append(performance)
-        AP = sum(performance) / len(performance)
-        AF = sum(forgetting) / len(forgetting) if forgetting else 0
-        print(f"AP: {AP * 100:.2f}, AF: {AF * 100:.2f}")
-
+    if cfg.wandb:
+        wandb.log({"memory_bank_path": os.path.join(output_dir, "memory_bank.pt")})
 
 if __name__ == "__main__":
     logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)

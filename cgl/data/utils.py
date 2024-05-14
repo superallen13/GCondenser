@@ -143,4 +143,4 @@ def get_streaming_datasets(dataset_name, dataset_dir, cls_per_graph=2, split_rat
         streaming_dataset = StreamingDataset(streaming_graph)
         streaming_datasets.append(streaming_dataset)
 
-    return dataset, streaming_datasets
+    return streaming_datasets
