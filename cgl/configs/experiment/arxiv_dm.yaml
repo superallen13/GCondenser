@@ -7,14 +7,11 @@ seed: 1024
 dataset_name: "arxiv"
 
 condenser:
-  budget: 5
+  budget: 10
   init_method: randomChoice
 
-  opt_adj:
-    lr: 1e-2
-
   opt_feat:
-    lr: 1e-2
+    lr: 1e-3
 
-  loop_outer: 10
+  loop_outer: 1
   loop_inner: 0

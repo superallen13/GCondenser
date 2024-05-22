@@ -33,7 +33,7 @@ def main(cfg):
         )
         wandb.init(
             project="GCB_CGL",
-            group=f"${cfg.dataset_name}_${cfg.condenser.budget}_${cfg.condenser.init_method}_${hydra_cfg['runtime']['choices']['condenser']}",
+            group=f"{cfg.dataset_name}_{cfg.condenser.budget}_{cfg.condenser.init_method}_{hydra_cfg['runtime']['choices']['condenser']}",
             config=config,
         )
 
@@ -83,6 +83,8 @@ def main(cfg):
 
     if cfg.wandb:
         wandb.log({"memory_bank_path": os.path.join(output_dir, "memory_bank.pt")})
+        wandb.finish()
+
 
 if __name__ == "__main__":
     logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)

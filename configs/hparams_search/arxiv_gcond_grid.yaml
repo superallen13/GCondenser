@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - override /hydra/sweeper: optuna
+  - override /hydra/sweeper/sampler: random  # random, grid
+
+optimized_metric: "val/acc_best"
+
+hydra:
+  mode: "MULTIRUN"
+
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    n_jobs: 8
+    direction: maximize
+    params:
+      condenser.structure_generator.hid_size: 64,128,256
+      condenser.structure_generator.nlayers: 2,3
+
+      condenser.opt_adj.lr: 1e-4,1e-3,1e-2,1e-1,1.0
+      condenser.opt_feat.lr: 1e-4,1e-3,1e-2,1e-1,1.0
+
+      condenser.loop_outer: 2,10,20,30,40  # when loop_outer is 1, this is one-step verison
+      condenser.loop_inner: 1,10,20,30,40

@@ -76,14 +76,12 @@ def get_dataset(dataset_name, dataset_dir):
             transform=T.Compose(
                 [
                     MaskRetype(),
-                    T.RowFeatNormalizer(),
                 ]
             ),
         )
     elif dataset_name == "reddit":
         dataset = RedditDataset(
             raw_dir=dataset_dir,
-            transform=T.Compose([T.RowFeatNormalizer()]),
         )
     elif dataset_name == "arxiv":
         dataset = AsNodePredDataset(
@@ -93,7 +91,6 @@ def get_dataset(dataset_name, dataset_dir):
             [
                 T.AddReverse(),
                 MaskRetype(),
-                T.RowFeatNormalizer(),
             ]
         )
         dataset.g = transform(dataset.g)
@@ -134,10 +131,10 @@ def get_streaming_datasets(dataset_name, dataset_dir, cls_per_graph=2, split_rat
         streaming_graph.ndata["val_mask"][perm[train_n : train_n + val_n]] = True
         streaming_graph.ndata["test_mask"][perm[train_n + val_n :]] = True
 
-        # Apply transformations if needed for specific datasets
-        if dataset_name in ["arxiv", "flickr", "reddit"]:
-            transform = StandardTransform()
-            streaming_graph = transform(streaming_graph)
+        # # Apply transformations if needed for specific datasets
+        # if dataset_name in ["arxiv", "flickr", "reddit"]:
+        #     transform = StandardTransform()
+        #     streaming_graph = transform(streaming_graph)
         
         streaming_graph = dgl.add_self_loop(streaming_graph)
         streaming_dataset = StreamingDataset(streaming_graph)

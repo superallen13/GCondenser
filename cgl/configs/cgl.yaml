@@ -4,7 +4,10 @@ defaults:
   - callbacks: default
   - trainer: default
   - paths: default
-  
+  - hparams_search: null
+
+seed: 1024
+
 dataset_name: "arxiv"
 dataset_dir: "data"
 cls_per_graph: 2
