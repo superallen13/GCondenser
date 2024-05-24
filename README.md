@@ -72,6 +72,21 @@ bash scripts/experiment.sh -d arxiv -b 1 -m sgc -c gcond
 ```
 This script initiates an Optuna sweep process to find the optimal learning rates for the adjacency matrix and features.
 
+## Cite
+If you find this repo useful, please cite
+
+```
+@inproceedings{GCondenser,
+  author    = {Yilun Liu and
+               Ruihong Qiu and
+               Zi Huang},
+  title     = {GCondenser: Benchmarking Graph Condensation},
+  journal   = {CoRR},
+  volume    = {abs/2405.14246},
+  year      = {2024}
+}
+```
+
 ## Acknowledgement
 We are deeply grateful to the following repositories, which have been immensely helpful in the development of this benchmark:
 - [GCond and DosCond](https://github.com/ChandlerBang/GCond)
