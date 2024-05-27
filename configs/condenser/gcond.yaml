@@ -6,7 +6,7 @@ label_distribution: original # original, balanced, strict
 init_method: kCenter # kCenter, randomChoice
 
 gnn:
-  _target_: graph_condenser.models.backbones.gcn.GCN
+  _target_: graph_condenser.models.backbones.sgc.SGC
   _partial_: true
   dropout: 0.5
 lr_model: 1e-2
@@ -14,14 +14,14 @@ wd_model: 5e-4
 
 val_mode: GNN
 gnn_val:
-  _target_: graph_condenser.models.backbones.gcn.GCN
+  _target_: graph_condenser.models.evaluators.sgc.SGCEvaluator
   _partial_: true
   dropout: 0.5
 lr_val: 1e-2
 wd_val: 5e-4
 
 gnn_test:
-  _target_: graph_condenser.models.backbones.gcn.GCN
+  _target_: graph_condenser.models.backbones.sgc.SGC
   _partial_: true
   dropout: 0.5
 lr_test: 1e-2
@@ -43,8 +43,8 @@ opt_feat:
   _partial_: true
   lr: 1e-4
 
-loop_outer: 5
-loop_inner: 10
+loop_outer: 2
+loop_inner: 5
 
 update_epoch_adj: 10
 update_epoch_feat: 20
