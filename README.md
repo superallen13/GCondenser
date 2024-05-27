@@ -11,7 +11,7 @@
 
 </div>
 
-This repo is the offical codes for the paper [GCondenser: Benchmarking Graph Condensation](https://arxiv.org/abs/2405.14246). `GCondenser` is a graph condensation (GC) toolkit, carefully designed for the graph condensation area 🚀. It can benchmark existing GC methods, accelerate the development of your own GC methods, and be directly used for downstream applications, such as graph continual learning, graph neural architecture search, and federated graph learning.
+This is the official code repository for the paper [GCondenser: Benchmarking Graph Condensation](https://arxiv.org/abs/2405.14246). GCondenser is a graph condensation (GC) toolkit, designed for the graph condensation field 🚀. It benchmarks existing GC methods, accelerates the development of your own GC methods, and can be directly used for downstream applications such as graph continual learning. The `master` branch is the DGL implementation, and the `pyg` branch is for the PyG implementation.
 
 ## Benchmark Pipeline
 `GCondenser` standardises the graph condensation paradigm, consisting of condensation, validation and evaluation as shown in the following figure.
