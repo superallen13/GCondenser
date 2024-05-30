@@ -1,10 +1,11 @@
 import dgl
 import torch
+import torch.utils.data
 from pytorch_lightning import LightningDataModule
 
 
 class DataModule(LightningDataModule):
-    def __init__(self, graph, observe_mode="transductive"):
+    def __init__(self, graph: dgl.DGLGraph, observe_mode="transductive"):
         super().__init__()
         self.g = graph
         assert observe_mode in ["transductive", "inductive"]
@@ -15,27 +16,21 @@ class DataModule(LightningDataModule):
             return torch.utils.data.DataLoader([self.g], collate_fn=lambda xs: xs[0])
         else:
             seen_data = dgl.node_subgraph(self.g, self.g.ndata["train_mask"])
-            return torch.utils.data.DataLoader(
-                [seen_data], collate_fn=lambda xs: xs[0]
-            )
+            return torch.utils.data.DataLoader([seen_data], collate_fn=lambda xs: xs[0])
 
     def val_dataloader(self):
         if self.transductive:
             return torch.utils.data.DataLoader([self.g], collate_fn=lambda xs: xs[0])
         else:
             seen_data = dgl.node_subgraph(self.g, self.g.ndata["val_mask"])
-            return torch.utils.data.DataLoader(
-                [seen_data], collate_fn=lambda xs: xs[0]
-            )
+            return torch.utils.data.DataLoader([seen_data], collate_fn=lambda xs: xs[0])
 
     def test_dataloader(self):
         if self.transductive:
             return torch.utils.data.DataLoader([self.g], collate_fn=lambda xs: xs[0])
         else:
             seen_data = dgl.node_subgraph(self.g, self.g.ndata["test_mask"])
-            return torch.utils.data.DataLoader(
-                [seen_data], collate_fn=lambda xs: xs[0]
-            )
+            return torch.utils.data.DataLoader([seen_data], collate_fn=lambda xs: xs[0])
 
 
 class CondensedGraphDataModule(LightningDataModule):
@@ -91,16 +86,3 @@ class GraphCondenserDataModule(LightningDataModule):
 
     def test_dataloader(self):
         return torch.utils.data.DataLoader([self.g_orig], collate_fn=lambda xs: xs[0])
-
-
-def main():
-    from graph_condenser.data.utils import get_dataset
-
-    dataset = get_dataset("cora", "data")
-    graph = dataset[0]
-    datamodule = DataModule(graph, observe_mode="transductive")
-    print(datamodule)
-
-
-if __name__ == "__main__":
-    main()

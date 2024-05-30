@@ -1,15 +1,9 @@
-import rootutils
-
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-from graph_condenser.models.backbones.gnn import GNN
-
-import torch
 import torch.nn as nn
-import dgl.nn as dglnn
+import dgl.nn.pytorch.conv as dglnn
 import torch.nn.functional as F
 
 
-class SAGE(GNN):
+class SAGE(nn.Module):
     def __init__(
         self,
         in_size: int,
@@ -18,7 +12,9 @@ class SAGE(GNN):
         nlayers: int = 2,
         dropout: float = 0.5,
     ):
-        super().__init__(in_size, out_size)
+        super().__init__()
+        self.out_size = out_size
+        self.layers = nn.ModuleList([])
         if nlayers == 1:
             self.layers.append(dglnn.SAGEConv(in_size, out_size, aggregator_type="mean"))
         else:

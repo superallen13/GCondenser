@@ -1,15 +1,9 @@
-import rootutils
-
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-from graph_condenser.models.backbones.gnn import GNN
-
-import torch
 import torch.nn as nn
-import dgl.nn as dglnn
+import dgl.nn.pytorch.conv as dglnn
 import torch.nn.functional as F
 
 
-class GCN(GNN):
+class GCN(nn.Module):
     def __init__(
         self,
         in_size: int,
@@ -18,7 +12,9 @@ class GCN(GNN):
         nlayers: int = 2,
         dropout: float = 0.5,
     ):
-        super().__init__(in_size, out_size)
+        super().__init__()
+        self.out_size = out_size
+        self.layers = nn.ModuleList([])
         if nlayers == 1:
             self.layers.append(dglnn.SGConv(in_size, out_size))
         else:
@@ -39,7 +35,7 @@ class GCN(GNN):
 
     def encode(self, g, features, edge_weight=None):
         h = features
-        for layer in self.layers[:-1]:
+        for layer in list(self.layers)[:-1]:
             h = layer(g, h, edge_weight=edge_weight)
             h = F.relu(h)
         return h
@@ -52,7 +48,9 @@ def main():
     import os
     import time
 
-    from graph_condenser.data.utils import get_dataset, dataset_statistic
+    import rootutils
+    rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+    from graph_condenser.data.utils import prepare_graph
     from graph_condenser.data.datamodule import DataModule
     from graph_condenser.models.backbones.lightning_gnn import LightningGNN
 
@@ -67,18 +65,16 @@ def main():
     parser.add_argument("--repeat", type=int, default=5)
     args = parser.parse_args()
 
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
+    logging.getLogger("lightning_utilities.rank_zero").setLevel(logging.WARNING)
     logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
     logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
     logging.getLogger("lightning").setLevel(logging.WARNING)
 
     results = []
-    # dataset_statistic([args.dataset])
-    dataset = get_dataset(args.dataset, args.data_dir)
-    graph = dataset[0]
+    graph = prepare_graph(args.dataset, args.data_dir)
     datamodule = DataModule(graph, observe_mode=args.observe_mode)
     for _ in range(args.repeat):
-        gcn = GCN(graph.ndata["feat"].size(1), dataset.num_classes)
+        gcn = GCN(graph.ndata["feat"].shape[1], graph.num_classes)
         model = LightningGNN(gcn, lr=0.01, wd=5e-4)
         checkpoint_callback = ModelCheckpoint(mode="max", monitor="val_acc")
         trainer = Trainer(
@@ -93,7 +89,7 @@ def main():
         start = time.time()
         trainer.fit(model, datamodule)
         print(f"Training time: {time.time() - start:.1f}s")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
+        ckpt_path = checkpoint_callback.best_model_path
         start = time.time()
         test_acc = trainer.test(
             model=model, datamodule=datamodule, ckpt_path=ckpt_path, verbose=True

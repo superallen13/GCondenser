@@ -1,0 +1,10 @@
+.git/
+.gitignore
+__pycache__/
+/data/
+/logs/
+.rsyncignore
+rsync.sh
+.DS_Store
+/checkpoints/
+/scripts/job_scripts/

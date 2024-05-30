@@ -12,7 +12,7 @@ def mean_emb(emb, y):
 class GCDM(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        g_orig,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -34,9 +34,10 @@ class GCDM(Condenser):
         loop_inner: int,
         update_epoch_adj: int,
         update_epoch_feat: int,
+        batch_training: bool = False,
     ):
         super().__init__(
-            dataset,
+            g_orig,
             observe_mode,
             budget,
             label_distribution,

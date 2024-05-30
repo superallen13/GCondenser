@@ -5,7 +5,7 @@ import logging
 
 import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-from graph_condenser.data.utils import get_dataset
+from graph_condenser.data.utils import prepare_graph
 from graph_condenser.data.datamodule import DataModule
 from graph_condenser.models.backbones.gcn import GCN
 from graph_condenser.models.backbones.sgc import SGC
@@ -125,8 +125,7 @@ def main(args):
 
     print(f"Saving trajectories to {path}")
 
-    dataset = get_dataset(args.dataset, args.data_dir)
-    data = dataset[0]
+    data = prepare_graph(args.dataset, args.data_dir)
     datamodule = DataModule(data, args.observe_mode)
 
     trajectories = []
@@ -134,7 +133,7 @@ def main(args):
         if args.backbone == "gcn":
             gnn = GCN(
                 data.ndata["feat"].shape[1],
-                dataset.num_classes,
+                data.num_classes,
                 args.hid_size,
                 args.nlayers,
                 args.dropout,
@@ -142,7 +141,7 @@ def main(args):
         elif args.backbone == "sgc":
             gnn = SGC(
                 data.ndata["feat"].shape[1],
-                dataset.num_classes,
+                data.num_classes,
                 args.hid_size,
                 args.nlayers,
                 args.dropout,

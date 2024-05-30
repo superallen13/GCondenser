@@ -3,9 +3,11 @@ from typing import List
 import hydra
 from pytorch_lightning import Callback
 from pytorch_lightning.loggers import Logger
+from pytorch_lightning.loggers import WandbLogger
 from omegaconf import DictConfig
 
 from graph_condenser.utils import pylogger
+from typing import Optional, Union
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 

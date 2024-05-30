@@ -9,19 +9,19 @@ from graph_condenser.models.components.gntk import GNTK
 
 
 import dgl
-import hydra
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning import LightningModule, Trainer
+from hydra.core.hydra_config import HydraConfig
 from torchmetrics import MaxMetric
 
 
 class Condenser(LightningModule):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        g_orig,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -36,15 +36,15 @@ class Condenser(LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(
-            logger=False, ignore=["dataset", "gnn_val", "gnn_test"]
+            logger=False, ignore=["g_orig", "gnn_val", "gnn_test"]
         )
         self.automatic_optimization = False
-        self.num_node_features = dataset[0].ndata["feat"].shape[1]
-        self.num_classes = dataset.num_classes
+        self.num_node_features = g_orig.ndata["feat"].shape[1]
+        self.num_classes = g_orig.num_classes
 
         # Initilaise the condensed graph.
-        self.npc = get_npc(dataset, budget, label_distribution)
-        self.g_cond = get_g_cond(dataset, observe_mode, self.npc, init_method)
+        self.npc = get_npc(g_orig, budget, label_distribution)
+        self.g_cond = get_g_cond(g_orig, observe_mode, self.npc, init_method)
         self.feat_cond = self.g_cond.ndata["feat"]
 
         # instantiate the GNNs in the validation and test steps
@@ -54,8 +54,7 @@ class Condenser(LightningModule):
         self.val_acc_best = MaxMetric()
 
         # create a directory to store the checkpoint for the test step
-        hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
-        output_dir = hydra_cfg["runtime"]["output_dir"]
+        output_dir = HydraConfig.get().runtime.output_dir
         self.test_ckpt_dir = os.path.join(output_dir, "test_step_ckpt")
         if not os.path.exists(self.test_ckpt_dir):
             os.makedirs(self.test_ckpt_dir)
@@ -220,7 +219,7 @@ class Condenser(LightningModule):
         torch.set_grad_enabled(True)  # enable gradients for the test step
 
         results = []
-        table_cols = []
+        table_cols = ["test_acc_mean", "test_acc_std"]
         for i in range(5):
             gnn_test = self.gnn_test(self.num_node_features, self.num_classes)
             model = LightningGNN(gnn_test, self.hparams.lr_test, self.hparams.wd_test)
@@ -233,7 +232,7 @@ class Condenser(LightningModule):
             trainer = Trainer(
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 devices=1,
-                max_epochs=600,
+                max_epochs=100,
                 log_every_n_steps=1,
                 callbacks=[checkpoint],
                 enable_model_summary=False,
@@ -241,7 +240,7 @@ class Condenser(LightningModule):
                 logger=False,
             )
             trainer.fit(model, datamodule)
-            ckpt_path = trainer.checkpoint_callback.best_model_path
+            ckpt_path = checkpoint.best_model_path
             test_acc = trainer.test(
                 model=model, datamodule=datamodule, ckpt_path=ckpt_path, verbose=True
             )
@@ -252,12 +251,13 @@ class Condenser(LightningModule):
         acc_mean = sum(results) / len(results)
         acc_std = torch.std(torch.tensor(results)).item()
         table_data = [acc_mean, acc_std] + results
-        table_cols = ["test_acc_mean", "test_acc_std"] + table_cols
 
         if self.logger is not None:
+            # assume the logger is WandbLogger
             self.logger.log_table(
                 key="test/acc_table", columns=table_cols, data=[table_data]
             )
+
         self.log(
             "test/acc_mean",
             acc_mean,
@@ -272,6 +272,7 @@ class Condenser(LightningModule):
             sync_dist=True,
             prog_bar=True,
         )
+
         return acc_mean, acc_std
 
     def on_test_end(self):

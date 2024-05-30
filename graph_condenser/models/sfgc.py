@@ -13,7 +13,7 @@ import torch.nn.functional as F
 class SFGC(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        g_orig,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -35,9 +35,10 @@ class SFGC(Condenser):
         start_epoch: int,
         expert_epochs: int,
         syn_steps: int,
+        batch_training: bool = False,
     ):
         super().__init__(
-            dataset,
+            g_orig,
             observe_mode,
             budget,
             label_distribution,

@@ -1,4 +1,5 @@
 from graph_condenser.models.condenser import Condenser
+from graph_condenser.data.utils import get_sparsified_k_hop_subgraph
 
 import dgl
 import torch
@@ -48,7 +49,7 @@ def match_loss(gw_syn, gw_real, dis_metric="ours"):
 class GCond(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        g_orig: dgl.DGLGraph,
         observe_mode: str,
         budget: int,
         label_distribution: str,
@@ -71,9 +72,10 @@ class GCond(Condenser):
         update_epoch_adj: int,
         update_epoch_feat: int,
         dis_metric: str,
+        batch_training: bool = False,
     ):
         super().__init__(
-            dataset,
+            g_orig,
             observe_mode,
             budget,
             label_distribution,
@@ -107,6 +109,7 @@ class GCond(Condenser):
         g_cond = self.g_cond.to(self.device)
         feat_cond = self.feat_cond
         label_cond = g_cond.ndata["label"]
+        av_labels = label_cond.unique()
 
         gnn = self.gnn(self.num_node_features, self.num_classes)
         gnn.to(self.device)
@@ -131,29 +134,69 @@ class GCond(Condenser):
             else:
                 edge_weight_cond = None
 
-            output = gnn(g, feat)
             output_cond = gnn(g_cond, feat_cond, edge_weight_cond)
-
             loss = torch.tensor(0.0).to(self.device)
-            for i, c in enumerate(range(self.num_classes)):
-                loss_real = F.cross_entropy(
-                    output[class_mask_real[i]], label[class_mask_real[i]]
-                )
-                gw_orig = torch.autograd.grad(
-                    loss_real, model_parameters, retain_graph=True
-                )
-                gw_orig = list((_.detach().clone() for _ in gw_orig))
+            if self.hparams.batch_training:
+                batch_size = 256
+                fanouts = [10, 5]
+                for c in av_labels:
+                    cls_node_indices = torch.nonzero(class_mask_real[c]).flatten()
+                    actual_batch_size = min(batch_size, len(cls_node_indices))
+                    sampled_indices = torch.multinomial(
+                        torch.ones(len(cls_node_indices)),
+                        actual_batch_size,
+                        replacement=False,
+                    )
+                    sampled_nodes = cls_node_indices[sampled_indices]
+                    sg = get_sparsified_k_hop_subgraph(
+                        g, sampled_nodes, fanouts=fanouts
+                    )
+                    inverse_indices = torch.arange(len(sampled_nodes))
+                    cls_output = gnn(sg, sg.ndata["feat"])[inverse_indices]
+                    loss_real = F.cross_entropy(
+                        cls_output, sg.ndata["label"][inverse_indices]
+                    )
+                    gw_orig = torch.autograd.grad(
+                        loss_real, model_parameters, retain_graph=True
+                    )
+                    gw_orig = list((_.detach().clone() for _ in gw_orig))
 
-                loss_cond = F.cross_entropy(
-                    output_cond[class_mask_cond[i]],
-                    label_cond[class_mask_cond[i]],
-                )
-                gw_cond = torch.autograd.grad(
-                    loss_cond, model_parameters, create_graph=True
-                )
+                    loss_cond = F.cross_entropy(
+                        output_cond[class_mask_cond[c]],
+                        label_cond[class_mask_cond[c]],
+                    )
+                    gw_cond = torch.autograd.grad(
+                        loss_cond, model_parameters, create_graph=True
+                    )
 
-                loss += match_loss(gw_cond, gw_orig, dis_metric=self.hparams.dis_metric)
-            losses.append(loss.item())
+                    loss += match_loss(
+                        gw_cond, gw_orig, dis_metric=self.hparams.dis_metric
+                    )
+                losses.append(loss.item())
+            else:
+                output = gnn(g, feat)
+                output_cond = gnn(g_cond, feat_cond, edge_weight_cond)
+                for c in av_labels:
+                    loss_real = F.cross_entropy(
+                        output[class_mask_real[c]], label[class_mask_real[c]]
+                    )
+                    gw_orig = torch.autograd.grad(
+                        loss_real, model_parameters, retain_graph=True
+                    )
+                    gw_orig = list((_.detach().clone() for _ in gw_orig))
+
+                    loss_cond = F.cross_entropy(
+                        output_cond[class_mask_cond[c]],
+                        label_cond[class_mask_cond[c]],
+                    )
+                    gw_cond = torch.autograd.grad(
+                        loss_cond, model_parameters, create_graph=True
+                    )
+
+                    loss += match_loss(
+                        gw_cond, gw_orig, dis_metric=self.hparams.dis_metric
+                    )
+                losses.append(loss.item())
 
             # update sythetic graph
             if self.structure_generator is not None:

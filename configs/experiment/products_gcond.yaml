@@ -1,0 +1,37 @@
+# @package _global_
+
+defaults:
+  - override /condenser: gcond
+
+dataset:
+  dataset_name: products
+condenser:
+  observe_mode: transductive
+  budget: 612 # 0.025% of the original dataset
+  label_distribution: original
+  init_method: randomChoice
+
+  gnn:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_val:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_test:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  opt_adj:
+    lr: 1e-3
+
+  opt_feat:
+    lr: 1e-3
+
+  loop_outer: 2
+  loop_inner: 1
+
+  update_epoch_adj: 10
+  update_epoch_feat: 20
+
+  dis_metric: ours
+
+  batch_training: true

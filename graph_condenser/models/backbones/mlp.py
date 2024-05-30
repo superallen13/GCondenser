@@ -1,9 +1,9 @@
 # write a mlp model
 import torch.nn as nn
 import torch.nn.functional as F
-from graph_condenser.models.backbones.gnn import GNN
 
-class MLP(GNN):
+
+class MLP(nn.Module):
     def __init__(
         self,
         in_size: int,
@@ -12,7 +12,9 @@ class MLP(GNN):
         nlayers: int = 2,
         dropout: float = 0.5,
     ):
-        super().__init__(in_size, out_size)
+        super().__init__()
+        self.out_size = out_size
+        self.layers = nn.ModuleList([])
         if nlayers == 1:
             self.layers.append(nn.Linear(in_size, out_size))
         else:
