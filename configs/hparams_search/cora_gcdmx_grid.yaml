@@ -1,0 +1,10 @@
+# @package _global_
+
+hydra:
+  mode: "MULTIRUN"
+  sweeper:
+    params:
+      condenser.opt_feat.lr: 1e-5,1e-4
+
+      condenser.loop_outer: 2,5,10
+      condenser.loop_inner: 1,5,10

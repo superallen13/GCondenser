@@ -90,7 +90,7 @@ def main():
         std_dev = 0.0
 
     print(
-        f"5 runs, average accuracy: {sum(results) / len(results) * 100:.1f}; std: {std_dev:.1f}"
+        f"{args.repeat} runs, average accuracy: {sum(results) / len(results) * 100:.1f}; std: {std_dev:.1f}"
     )
 
 

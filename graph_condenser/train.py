@@ -7,11 +7,12 @@ import rootutils
 import pytorch_lightning as pl
 from pytorch_lightning import LightningModule, Callback, Trainer
 from pytorch_lightning.loggers import Logger
-from pytorch_lightning.callbacks import Timer, ModelCheckpoint
+from pytorch_lightning.callbacks import Timer
 from pytorch_lightning.profilers import SimpleProfiler
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+from graph_condenser.data.datamodule import GraphCondenserDataModule
 from graph_condenser.utils import (
     RankedLogger,
     extras,
@@ -38,30 +39,26 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
-    # FIXME...
-    from graph_condenser.data.datamodule import GraphCondenserDataModule
-
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         pl.seed_everything(cfg.seed, workers=True)
 
     profiler = SimpleProfiler(filename="profiler-report")
 
+    log.info("Instantiating loggers...")
+    loggers: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
     # get the original graph dataset and initialise the condensed grpah
     log.info(f"Instantiating graph dataset <{cfg.dataset.dataset_name}>")
     g = hydra.utils.call(cfg.dataset)
-    datamodule = GraphCondenserDataModule(g, cfg.condenser.observe_mode)
 
     log.info(f"Instantiating condenser <{cfg.condenser._target_}>")
-    condenser: LightningModule = hydra.utils.instantiate(cfg.condenser, g_orig=g)
+    condenser: LightningModule = hydra.utils.instantiate(cfg.condenser, g=g)
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))  # currently only support WandbLogger
     timer = Timer()
     callbacks.append(timer)
-
-    log.info("Instantiating loggers...")
-    loggers: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(
@@ -71,6 +68,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         logger=loggers,
         inference_mode=False,
         profiler=profiler,
+        num_sanity_val_steps=0,
     )
 
     object_dict = {
@@ -86,6 +84,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log_hyperparameters(object_dict)
 
     log.info("Starting training!")
+    datamodule = GraphCondenserDataModule(g, cfg.condenser.observe_mode)
     trainer.fit(
         model=condenser,
         datamodule=datamodule,
@@ -95,11 +94,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     train_metrics = trainer.callback_metrics
 
     log.info("Starting testing!")
-    checkpoint = None
-    for callback in callbacks:
-        if isinstance(callback, ModelCheckpoint):
-            checkpoint = callback
-            break
+    checkpoint = trainer.checkpoint_callback
     if checkpoint is not None:
         ckpt_path = checkpoint.best_model_path
         if ckpt_path == "":
@@ -145,14 +140,10 @@ def main(cfg: DictConfig) -> Optional[float]:
     :return: Optional[float] with optimized metric value.
     """
     # suppress some logs from pytorch_lightning
-    logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
-
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("lightning.pytorch.accelerators.cuda").setLevel(logging.WARNING)
+    # logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
+    # logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
 
     logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    logging.getLogger("lightning").setLevel(logging.WARNING)
 
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)

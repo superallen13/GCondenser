@@ -1,7 +1,11 @@
 import os
+from dgl import data
+from numpy import test
 import rootutils
 import logging
 import argparse
+import datetime
+import random
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from graph_condenser.data.utils import prepare_graph
@@ -31,7 +35,7 @@ def get_sparse_graph(g, threshold=0.5):
     return g
 
 
-def cross_test(g_orig, g_cond, observe_mode, test_models, repeat=5):
+def cross_test(dataset_name, g_orig, g_cond, observe_mode, test_models, repeat=5):
     test_restults = []
     for model_name in test_models:
         results = []
@@ -46,26 +50,50 @@ def cross_test(g_orig, g_cond, observe_mode, test_models, repeat=5):
                 model = LightningModel(test_model, 0.01, 5e-4)
             else:
                 model = LightningGNN(test_model, 0.01, 5e-4)
+            # use current time as the checkpoint
+            current_time = datetime.datetime.now()
+            time_string = current_time.strftime("%Y%m%d-%H%M%S%f")
+            rand_num = random.randint(100, 999)
+            file_name = f"{time_string}_{rand_num}"
             checkpoint = ModelCheckpoint(
+                dirpath=f"./{dataset_name}_checkpoints",
                 monitor="val_acc",
                 save_top_k=1,
                 mode="max",
+                filename=file_name,
             )
             trainer = Trainer(
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 devices=1,
                 max_epochs=600,
                 log_every_n_steps=1,
+                check_val_every_n_epoch=1,
                 callbacks=[checkpoint],
                 enable_model_summary=False,
                 enable_progress_bar=False,
                 logger=False,
             )
+            # trainer = Trainer(
+            #     accelerator="gpu" if torch.cuda.is_available() else "cpu",
+            #     devices=1,
+            #     max_epochs=300,
+            #     enable_checkpointing=False,
+            #     # callbacks=checkpoint_callback,
+            #     enable_progress_bar=True,
+            #     enable_model_summary=False,
+            #     logger=False,
+            #     # we don't need to validate the model
+            #     limit_val_batches=0,
+            #     num_sanity_val_steps=0,
+            # )
             trainer.fit(model, datamodule)
             ckpt_path = checkpoint.best_model_path
             test_acc = trainer.test(
                 model=model, datamodule=datamodule, ckpt_path=ckpt_path, verbose=False
             )
+            # test_acc = trainer.test(
+            #     model=model, datamodule=datamodule, verbose=False
+            # )
             results.append(test_acc[0]["test_acc"])
             os.remove(ckpt_path)
             print(f"Repeat {i}, {model_name}: {test_acc[0]['test_acc'] * 100:.1f}")
@@ -83,39 +111,44 @@ def main(args):
 
     dataset_name = args.dataset
     budget_index = args.budget
-    runs_df = fetch_info_from_wandb(dataset_name, budget_index)
+    # runs_df = fetch_info_from_wandb(dataset_name, budget_index)
 
-    # only keep the best args.metric (val_acc or test_acc) for each condenser-backbone pair
-    df = runs_df.groupby(["condenser", "backbone"]).apply(
-        lambda x: x.loc[x[args.metric].idxmax()]
-    )
+    # # only keep the best args.metric (val_acc or test_acc) for each condenser-backbone pair
+    # df = runs_df.groupby(["condenser", "backbone"]).apply(
+    #     lambda x: x.loc[x[args.metric].idxmax()]
+    # )
+    df = pd.read_csv(f"./benchmark/results/{dataset_name}_{budget_index}_best_val_acc.csv")
 
-    test_models = ["ChebNet", "SAGE", "APPNP"]  # ["MLP", "SGC", "GCN", "GAT", "ChebNet", "SAGE", "APPNP"]
+    # test_models = ["MLP", "SGC", "GCN", "GAT", "ChebNet", "SAGE", "APPNP"]
 
+    test_models = [args.test_model]
     cross_test_df = pd.DataFrame(
         columns=["Method", "Backbone"] + test_models + ["Avg."]
     )
     g_orig = prepare_graph(dataset_name, "./data")
-    for condenser in CONDENSERS:
-        for backbone in BACKBONES:
-            # get the first row of the dataframe that matches the condenser and backbone
-            exp_info = df[
-                (df["condenser"] == condenser) & (df["backbone"] == backbone)
-            ].iloc[0]
-            print(exp_info)
-            g_cond = torch.load(exp_info["ckpt"])["g_cond"]
-            cross_test_results = cross_test(g_orig, g_cond, exp_info["observation"], test_models, args.repeat)
-            cross_test_results.append(sum(cross_test_results) / len(cross_test_results))
-            # cross_test_results is a dict, the key is the model name, the value is the test accuracy
-            cross_test_df.loc[len(cross_test_df)] = [
-                condenser,
-                backbone,
-            ] + cross_test_results
+    # for condenser in CONDENSERS:
+    #     for backbone in BACKBONES:
+        # get the first row of the dataframe that matches the condenser and backbone
+    condenser = args.condenser
+    backbone = args.backbone
+
+    exp_info = df[
+        (df["condenser"] == condenser) & (df["backbone"] == backbone)
+    ].iloc[0]
+    print(exp_info)
+    g_cond = torch.load(exp_info["ckpt"])["g_cond"]
+    cross_test_results = cross_test(dataset_name, g_orig, g_cond, exp_info["observation"], test_models, args.repeat)
+    cross_test_results.append(sum(cross_test_results) / len(cross_test_results))
+    # cross_test_results is a dict, the key is the model name, the value is the test accuracy
+    cross_test_df.loc[len(cross_test_df)] = [
+        condenser,
+        backbone,
+    ] + cross_test_results
 
     if args.save_table:
         # covert the results to a dataframe
         budget = BUDGETS[dataset_name][budget_index - 1]
-        cross_test_df.to_csv(f"./tabels/{dataset_name}_{budget}_cross_test.csv", index=False)
+        cross_test_df.to_csv(f"./tables/{dataset_name}_{budget}_{condenser}_{backbone}_{args.test_model}_cross_test.csv", index=False)
 
 
 if __name__ == "__main__":
@@ -123,6 +156,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=1024)
     parser.add_argument("--dataset", type=str, default="citeseer")
     parser.add_argument("--budget", type=int, default=1)
+    parser.add_argument("--condenser", type=str, default="")
+    parser.add_argument("--test_model", type=str, default="")
+    parser.add_argument("--backbone", type=str, default="")
     parser.add_argument("--metric", type=str, default="val_acc")
     parser.add_argument("--repeat", type=int, default=5)
     parser.add_argument("--save_table", action="store_true")

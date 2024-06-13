@@ -6,6 +6,7 @@ local_path='./'
 
 remote_path_wiener="uqyliu71@wiener.hpc.dc.uq.edu.au:/scratch/itee/uqyliu71/GCondenser-syn"
 remote_path_bunya="uqyliu71@bunya.rcc.uq.edu.au:/scratch/user/uqyliu71/GCondenser-syn"
+remote_path_dracula="s4669928@dracula.eait.uq.edu.au:~/projects/GCondenser-syn"
 remote_path=$remote_path_wiener
 
 while getopts "t:" opt; do
@@ -24,8 +25,10 @@ if [ "$target" == "wiener" ]; then
     remote_path=$remote_path_wiener
 elif [ "$target" == "bunya" ]; then
     remote_path=$remote_path_bunya
+elif [ "$target" == "dracula" ]; then
+    remote_path=$remote_path_dracula
 else
-    echo "Invalid target specified. Use 'wiener' or 'bunya'."
+    echo "Invalid target specified. Use 'wiener' or 'bunya' or 'dracula'."
     exit 1
 fi
 

@@ -1,0 +1,17 @@
+# @package _global_
+
+defaults:
+  - override /condenser: sgdd
+
+condenser:
+  budget: 20
+  init_method: random
+
+  opt_adj:
+    lr: 1e-3
+
+  opt_feat:
+    lr: 1e-3
+
+  loop_outer: 10
+  loop_inner: 1

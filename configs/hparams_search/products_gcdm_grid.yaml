@@ -4,6 +4,8 @@ hydra:
   mode: "MULTIRUN"
   sweeper:
     params:
+      condenser.structure_generator.hid_size: 64
+      condenser.structure_generator.nlayers: 2
       condenser.opt_adj.lr: 1e-2,1e-1
       condenser.opt_feat.lr: 1e-2,1e-1
 

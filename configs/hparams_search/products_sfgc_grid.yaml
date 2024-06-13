@@ -1,0 +1,13 @@
+# @package _global_
+
+hydra:
+  mode: "MULTIRUN"
+  sweeper:
+    params:
+      condenser.init_method: randomChoice
+      condenser.lr_model: 1e-2,1e-1,1.0
+      condenser.opt_feat.lr: 1e-2,1e-1
+
+      condenser.start_epoch: 0,10,20
+      condenser.syn_steps: 300
+      condenser.expert_epochs: 800

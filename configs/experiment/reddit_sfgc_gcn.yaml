@@ -1,0 +1,31 @@
+# @package _global_
+
+defaults:
+  - override /condenser: sfgc
+
+dataset:
+  dataset_name: reddit
+  
+condenser:
+  observe_mode: inductive
+  budget: 153
+  label_distribution: original
+  init_method: kCenter
+
+  gnn:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_val:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_test:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  opt_feat:
+    lr: 0.03
+
+  lr_model: 0.3
+  rand_start: true
+  start_epoch: 30
+  syn_steps: 200
+  expert_epochs: 800

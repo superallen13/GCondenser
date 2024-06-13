@@ -97,15 +97,15 @@ def get_raw_dataset(dataset_name, dataset_dir):
         dataset = RedditDataset(raw_dir=dataset_dir)
     elif dataset_name == "arxiv":
         dataset = AsNodePredDataset(
-            DglNodePropPredDataset("ogbn-arxiv", root=dataset_dir)
+            DglNodePropPredDataset("ogbn-arxiv", root=dataset_dir), raw_dir=dataset_dir
         )
     elif dataset_name == "products":
         dataset = AsNodePredDataset(
-            DglNodePropPredDataset("ogbn-products", root=dataset_dir)
+            DglNodePropPredDataset("ogbn-products", root=dataset_dir), raw_dir=dataset_dir
         )
     elif dataset_name == "papers100m":
         dataset = AsNodePredDataset(
-            DglNodePropPredDataset("ogbn-papers100M", root=dataset_dir)
+            DglNodePropPredDataset("ogbn-papers100M", root=dataset_dir), raw_dir=dataset_dir
         )
     elif dataset_name == "corafull":
         dataset = CoraFullDataset(raw_dir=dataset_dir)
@@ -138,6 +138,7 @@ def prepare_graph(dataset_name: str, dataset_dir: str):
         "reddit",
         "arxiv",
         "products",
+        "papers100m",
     ]  # only support these datasets for condensation
     raw_dataset = get_raw_dataset(dataset_name, dataset_dir)
     if dataset_name in ["reddit"]:
@@ -145,6 +146,16 @@ def prepare_graph(dataset_name: str, dataset_dir: str):
     elif dataset_name in ["flickr"]:
         transform = T.Compose([MaskRetype(), T.AddSelfLoop(), StandardTransform()])
     elif dataset_name in ["arxiv"]:
+        transform = T.Compose(
+            [
+                MaskRetype(),
+                T.AddReverse(),
+                T.AddSelfLoop(),
+                StandardTransform(),
+            ]
+        )
+    elif dataset_name in ["papers100m"]:
+        raw_dataset[0].ndata["label"] = raw_dataset[0].ndata["label"].long()
         transform = T.Compose(
             [
                 MaskRetype(),
@@ -216,11 +227,10 @@ def get_npc(g, budget, label_distribution):
 
 def _graph_sampling(
     g,
-    sampling_method,
+    method,
     npc,
     observe_mode="transductive",
 ):
-    method = sampling_method.lower()
     if method == "kcenter":
         datamodule = DataModule(g, observe_mode)
         backbone = GCN(g.ndata["feat"].shape[1], g.num_classes)
@@ -230,7 +240,7 @@ def _graph_sampling(
             devices=1,
             max_epochs=50,
             enable_checkpointing=False,
-            enable_progress_bar=False,
+            enable_progress_bar=True,
             enable_model_summary=False,
             logger=False,
             # we don't need to validate the model
@@ -238,7 +248,7 @@ def _graph_sampling(
             num_sanity_val_steps=0,
         )
         trainer.fit(model, datamodule)
-
+        g = g.to(model.device)
         emb = model.encode(g, g.ndata["feat"])
         idx_selected = []
         for cls in range(g.num_classes):
@@ -251,18 +261,17 @@ def _graph_sampling(
             idx_selected.append(idx[idx_centers])
         idx_selected = torch.cat(idx_selected)
         sampled_graph = dgl.node_subgraph(g, idx_selected)
-    elif method == "randomchoice":
+    elif method == "random":
         idx_selected = []
         for i, cls in enumerate(range(g.num_classes)):
             train_mask_at_cls = (g.ndata["label"] == cls) & g.ndata["train_mask"]
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
         sampled_graph = dgl.node_subgraph(g, idx_selected)
-    elif method == "randomnoise":
+    elif method == "noise":
         # TODO simplify this process, currently implementaion is not efficient
         idx_selected = []
-        classes = g.ndata["label"][g.ndata["train_mask"]].unique()
-        for i, cls in enumerate(classes):
+        for i, cls in enumerate(range(g.num_classes)):
             train_mask_at_cls = (g.ndata["label"] == cls) & g.ndata["train_mask"]
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
@@ -278,7 +287,7 @@ def get_g_cond(
     g,
     observe_mode,
     npc,
-    init_method="kCenter",
+    init_method="kcenter",
 ):
     g_cond = _graph_sampling(g, init_method, npc, observe_mode)
 

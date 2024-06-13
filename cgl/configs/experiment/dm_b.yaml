@@ -2,16 +2,12 @@
 
 defaults:
   - override /condenser: dm
-  
-seed: 1024
-dataset_name: "arxiv"
 
 condenser:
-  budget: 10
-  init_method: randomChoice
+  budget: 20
+  init_method: random
 
   opt_feat:
     lr: 1e-3
 
   loop_outer: 1
-  loop_inner: 0

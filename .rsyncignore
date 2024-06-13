@@ -6,5 +6,6 @@ __pycache__/
 .rsyncignore
 rsync.sh
 .DS_Store
-/checkpoints/
+/*checkpoints/
+/outputs/
 /scripts/job_scripts/

@@ -2,13 +2,10 @@
 
 defaults:
   - override /condenser: dm
-  
-seed: 1024
-dataset_name: "citeseer"
 
 condenser:
   budget: 10
-  init_method: randomChoice
+  init_method: random
 
   opt_feat:
     lr: 1e-4

@@ -18,10 +18,10 @@ class GAT(nn.Module):
         if nlayers == 1:
             self.layers.append(dglnn.GATConv(in_size, out_size, num_heads=1))
         else:
-            self.layers.append(dglnn.GATConv(in_size, hid_size, num_heads=8))
+            self.layers.append(dglnn.GATConv(in_size, hid_size, num_heads=3))
             for _ in range(nlayers - 2):
-                self.layers.append(dglnn.GATConv(hid_size * 8, hid_size, num_heads=8))
-            self.layers.append(dglnn.GATConv(hid_size * 8, out_size, num_heads=1))
+                self.layers.append(dglnn.GATConv(hid_size * 3, hid_size, num_heads=3))
+            self.layers.append(dglnn.GATConv(hid_size * 3, out_size, num_heads=1))
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, g, features, edge_weight=None):

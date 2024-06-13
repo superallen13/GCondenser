@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - override /condenser: gcdmx
+
+dataset:
+  dataset_name: cora
+  
+condenser:
+  observe_mode: transductive
+  budget: 35
+  label_distribution: original
+  init_method: kCenter
+
+  gnn:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_val:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_test:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  opt_feat:
+    lr: 1e-4
+
+  loop_outer: 5
+  loop_inner: 10

@@ -4,7 +4,7 @@
 declare -A valid_backbones=([sgc]=1 [gcn]=1)
 declare -A valid_datasets=([citeseer]=1 [cora]=1 [pubmed]=1 [arxiv]=1 [flickr]=1 [reddit]=1, [products]=1)
 declare -a valid_budgets=(1 2 3)
-declare -A valid_condensers=([gcond]=1 [doscond]=1 [gcondx]=1 [doscondx]=1 [sgdd]=1 [gcdm]=1 [dm]=1 [sfgc]=1)
+declare -A valid_condensers=([gcond]=1 [doscond]=1 [gcondx]=1 [doscondx]=1 [sgdd]=1 [gcdm]=1 [gcdmx]=1 [dm]=1 [sfgc]=1)
 
 # command line options
 while getopts "m:d:b:c:" opt; do
@@ -99,16 +99,13 @@ base_command="python graph_condenser/train.py \
     condenser.gnn._target_=$target_gnn \
     condenser.gnn_val._target_=$target_val \
     condenser.gnn_test._target_=$target_test \
-    hparams_search=${selected_dataset}_${condenser}_grid \
-    logger=wandb \
-    logger.wandb.project=GCB-overall \
-    logger.wandb.group=$selected_dataset-$observe_mode-$selected_budget-$backbone-$condenser"
+    hparams_search=${selected_dataset}_${condenser}_grid
 
 # Adding condition specific command
 if [ "$condenser" == "sfgc" ]; then
     $base_command condenser.traj_buffer.model=$backbone
 elif [ "$selected_dataset" == "products" ]; then
-    $base_command condenser.init_method=randomChoice +condenser.batch_training=true
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True $base_command condenser.init_method=randomChoice +condenser.batch_training=true
 else
     $base_command
 fi

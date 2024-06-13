@@ -1,9 +1,21 @@
 _target_: graph_condenser.models.sfgc.SFGC
 
+defaults:
+  - gnn: gcn
+  - validator: gcn
+  - tester: gcn
+
+lr_model: 1e-2
+wd_model: 5e-4
+lr_val: 1e-2
+wd_val: 5e-4
+lr_test: 1e-2
+wd_test: 5e-4
+
 observe_mode: transductive
 budget: 30
-label_distribution: original # original, balanced, strict
-init_method: kCenter # kCenter, randomChoice
+label_distribution: original
+init_method: kcenter
 
 # teacher models' trajectories
 traj_buffer:
@@ -21,27 +33,8 @@ traj_buffer:
   traj_dir: ${paths.data_dir}/traj/${dataset.dataset_name}
   device: cuda:0
 
-val_mode: GNN
-gnn_val:
-  _target_: graph_condenser.models.backbones.gcn.GCN
-  _partial_: true
-  dropout: 0.5
-lr_val: 1e-2
-wd_val: 5e-4
-
-gnn_test:
-  _target_: graph_condenser.models.backbones.gcn.GCN
-  _partial_: true
-  dropout: 0.5
-lr_test: 1e-2
-wd_test: 5e-4
-
 # student model
 gnn:
-  _target_: graph_condenser.models.backbones.gcn.GCN
-  _partial_: true
-  hid_size: 256
-  nlayers: 2
   dropout: 0.0
 lr_model: 1.0
 

@@ -17,6 +17,7 @@ PRINT_MAP = {
     "doscondx": "DosCondX",
     "sgdd": "SGDD",
     "gcdm": "GCDM",
+    "gcdmx": "GCDMX",
     "dm": "DM",
     "sfgc": "SFGC",
     "gcn": "GCN",
@@ -35,6 +36,7 @@ CONDENSERS = [
     "DosCondX",
     "SGDD",
     "GCDM",
+    "GCDMX",
     "DM",
     "SFGC",
 ]
@@ -46,17 +48,17 @@ BUDGETS = {
     "arxiv": [90, 454, 909],
     "flickr": [44, 223, 446],
     "reddit": [153, 769, 1539],
+    "products": [612, 1225, 2449],
 }
 
 
-def fetch_info_from_wandb(dataset_name, budget_index):
+def fetch_info_from_wandb(dataset_name, budget_index, project="GCondenser-sweep"):
     budget = BUDGETS[dataset_name][budget_index - 1]
 
     print(f"Fetching data from Weights & Biases...")
     print(f"Dataset: {dataset_name}, Budget: {budget}")
 
     api = wandb.Api()
-    project = "GCondenser-sweep"
     runs = api.runs(
         WANDB_ENTITY + "/" + project,
         filters={"group": {"$regex": f"{dataset_name}.*{budget}-.*"}},

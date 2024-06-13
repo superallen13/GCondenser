@@ -2,19 +2,16 @@
 
 defaults:
   - override /condenser: gcond
-  
-seed: 1024
-dataset_name: "arxiv"
 
 condenser:
-  budget: 5
-  init_method: randomChoice
+  budget: 10
+  init_method: random
 
   opt_adj:
-    lr: 1e-2
+    lr: 1e-5
 
   opt_feat:
-    lr: 1e-2
+    lr: 1e-4
 
   loop_outer: 10
   loop_inner: 1
