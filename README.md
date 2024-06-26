@@ -7,15 +7,14 @@
 <a href="https://pytorchlightning.ai/"><img alt="Lightning" src="https://img.shields.io/badge/-Lightning-792ee5?logo=pytorchlightning&logoColor=white"></a>
 <a href="https://hydra.cc/"><img alt="Config: Hydra" src="https://img.shields.io/badge/Config-Hydra-89b8cd"></a>
 <a href="https://github.com/ashleve/lightning-hydra-template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
-<!-- [![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)]() -->
-
 </div>
 
 This is the official code repository for the paper [GCondenser: Benchmarking Graph Condensation](https://arxiv.org/abs/2405.14246). GCondenser is a graph condensation (GC) toolkit, designed for the graph condensation field 🚀. It benchmarks existing GC methods, accelerates the development of your own GC methods, and can be directly used for downstream applications such as graph continual learning. The `master` branch is the DGL implementation, and the `pyg` branch is for the PyG implementation.
 
+<u>NOTE: If you prefer PyG, please check out our PyG branch. Both DGL and PyG are supported.</u>
 ## Benchmark Pipeline
 `GCondenser` standardises the graph condensation paradigm, consisting of condensation, validation and evaluation as shown in the following figure.
-![GCondenser Pipline](./figs/GCB-pipline.png)
+![GCondenser Pipline](./figs/GCB-pipeline.png)
 
 ## Get Started
 `GCondenser` mainly depends on the following packages:
