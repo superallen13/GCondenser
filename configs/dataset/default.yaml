@@ -1,0 +1,4 @@
+_target_: graph_condenser.data.utils.prepare_graph
+dataset_name: citeseer
+dataset_dir: ${paths.data_dir}
+

@@ -1,12 +1,14 @@
 import os
 import rootutils
 import argparse
+import logging
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from graph_condenser.data.utils import get_g_cond, get_npc
 from graph_condenser.models.backbones.gcn import GCN
 from data.utils import get_streaming_datasets
 
+import pandas as pd
 import dgl
 import torch
 import torch.nn.functional as F
@@ -14,30 +16,41 @@ import pytorch_lightning as pl
 
 
 def main(args):
-    pl.seed_everything(1024)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint_path = "cgl/ckpt"
 
-    streaming_data_path = os.path.join(args.data_dir, "streaming", args.dataset_name)
-    streaming_datasets = torch.load(streaming_data_path)
+    streaming_data_path = os.path.join(args.data_dir, "streaming", f"{args.dataset_name}")
+    os.makedirs(os.path.dirname(streaming_data_path), exist_ok=True)
+    # if streaming_data_path does not exist, use the get method
+    if not os.path.exists(streaming_data_path):
+        # first check if the parents dir path exists
+        streaming_datasets = get_streaming_datasets(
+            args.dataset_name, args.data_dir, args.cls_per_graph, args.split_ratio
+        )
+        torch.save(streaming_datasets, streaming_data_path)
+    else:
+        streaming_datasets = torch.load(streaming_data_path)
 
-    if args.mb_type == "cgm":
-        memory_bank = torch.load(args.memory_bank_path)
-    elif args.mb_type == "original":
+    if args.condenser == "whole":
         memory_bank = [stream_dataset[0] for stream_dataset in streaming_datasets]
-    elif args.mb_type == "randomchoice":
+    elif args.condenser == "random":
         memory_bank = []
         for stream_dataset in streaming_datasets:
-            npc = get_npc(stream_dataset, 10, "original")
-            replay_graph = get_g_cond(stream_dataset, "transductive", npc, args.mb_type)
+            g_orig = stream_dataset[0]
+            g_orig.num_classes = stream_dataset.num_classes
+            npc = get_npc(g_orig, 10, "original")
+            replay_graph = get_g_cond(g_orig, "transductive", npc, args.condenser)
             memory_bank.append(replay_graph)
-    elif args.mb_type == "kcenter":
+    elif args.condenser == "kcenter":
         memory_bank = []
         for stream_dataset in streaming_datasets:
-            npc = get_npc(stream_dataset, 10, "original")
-            replay_graph = get_g_cond(stream_dataset, "transductive", npc, args.mb_type)
+            g_orig = stream_dataset[0]
+            g_orig.num_classes = stream_dataset.num_classes
+            npc = get_npc(g_orig, 10, "original")
+            replay_graph = get_g_cond(g_orig, "transductive", npc, args.condenser)
             memory_bank.append(replay_graph)
-        
+    else:
+        memory_bank = torch.load(args.memory_bank_path)
+
     gnn = GCN(
         streaming_datasets[-1][0].ndata["feat"].size(1),
         streaming_datasets[-1][0].ndata["label"].max().item() + 1,
@@ -46,11 +59,12 @@ def main(args):
     optimiser = torch.optim.Adam(gnn.parameters(), lr=0.005, weight_decay=5e-4)
 
     metrics = []
+    APs = []
     for i, memory_graph in enumerate(memory_bank):
         memory_graph = dgl.batch(memory_bank[: i + 1]).to(device)
 
         best_val_acc = 0.0
-        for epoch in range(200):
+        for epoch in range(300):
             edge_weight = (
                 memory_graph.edata["weight"] if "weight" in memory_graph.edata else None
             )
@@ -62,26 +76,6 @@ def main(args):
             optimiser.zero_grad()
             loss.backward()
             optimiser.step()
-
-        #     # validate
-        #     g = streaming_datasets[i][0].to(device)
-        #     y_hat = gnn(g, g.ndata["feat"])[g.ndata["val_mask"]]
-        #     y = g.ndata["label"][g.ndata["val_mask"]]
-        #     val_acc = (y_hat.argmax(dim=-1) == y).float().mean()
-
-        #     if val_acc > best_val_acc:
-        #         best_val_acc = val_acc
-        #         # save the check point file
-        #         checkpoint = {
-        #             "model_state_dict": gnn.state_dict(),
-        #             "optimiser_state_dict": optimiser.state_dict(),
-        #         }
-        #         torch.save(checkpoint, checkpoint_path)
-        #         # print(f'Checkpoint saved at epoch {epoch} with validation accuracy: {val_acc:.4f}')
-        # # load the check point file
-        # checkpoint = torch.load(checkpoint_path)
-        # gnn.load_state_dict(checkpoint["model_state_dict"])
-        # optimiser.load_state_dict(checkpoint["optimiser_state_dict"])
 
         performance, forgetting = [], []
         # calculate average performance and average forgetting.
@@ -99,7 +93,9 @@ def main(args):
         metrics.append(performance)
         AP = sum(performance) / len(performance)
         AF = sum(forgetting) / len(forgetting) if forgetting else 0
+        APs.append(AP)
         print(f"AP: {AP * 100:.1f}, AF: {AF * 100:.1f}")
+    return APs
 
     # performace_matrix_path = os.path.dirname(args.memory_bank_path)
     # torch.save(metrics, os.path.join(performace_matrix_path, "performance_matrix.pt"))
@@ -111,12 +107,25 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--dataset_name", type=str, default="arxiv")
     parser.add_argument("--cls_per_graph", type=int, default=2)
-    parser.add_argument("--mb_type", type=str, default="cgm")
-    parser.add_argument(
-        "--memory_bank_path",
-        type=str,
-        default="/scratch/itee/uqyliu71/GCondenser/multirun/2024-05-15/18-05-27/2/memory_bank.pt",
-    )
+    parser.add_argument("--split_ratio", type=float, default=0.6)
+    parser.add_argument("--condenser", type=str, default="")
+    parser.add_argument("--memory_bank_path", type=str, default="")
+    parser.add_argument("--repeat", type=int, default=5)
     args = parser.parse_args()
 
-    main(args)
+    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
+
+    data = []  # Create a list to store data dictionaries
+    for i in range(args.repeat):
+        pl.seed_everything(i)
+        APs = main(args)  # Call your function to get APs
+        for i, AP in enumerate(APs):
+            data.append({"task": i, "condenser": args.condenser, "AP": AP})
+
+    # Create DataFrame from list of dictionaries
+    df = pd.DataFrame(data, columns=["task", "condenser", "AP"])
+
+    print(df)
+    result_path = f"./data/cgl_{args.dataset_name}_{args.condenser}.csv"
+    df.to_csv(result_path, index=False)
+    print(f"Save the APs to: {result_path}")

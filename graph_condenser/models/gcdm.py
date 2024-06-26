@@ -12,16 +12,15 @@ def mean_emb(emb, y):
 class GCDM(Condenser):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        g,
         observe_mode: str,
         budget: int,
         label_distribution: str,
         init_method: str,
-        val_mode: str,
-        gnn_val: torch.nn.Module,
+        validator: torch.nn.Module,
         lr_val: float,
         wd_val: float,
-        gnn_test: torch.nn.Module,
+        tester: torch.nn.Module,
         lr_test: float,
         wd_test: float,
         structure_generator: torch.nn.Module,
@@ -34,18 +33,18 @@ class GCDM(Condenser):
         loop_inner: int,
         update_epoch_adj: int,
         update_epoch_feat: int,
+        batch_training: bool = False,
     ):
         super().__init__(
-            dataset,
+            g,
             observe_mode,
             budget,
             label_distribution,
             init_method,
-            val_mode,
-            gnn_val,
+            validator,
             lr_val,
             wd_val,
-            gnn_test,
+            tester,
             lr_test,
             wd_test,
         )
@@ -151,7 +150,7 @@ class GCDM(Condenser):
                         mean_emb_orig = mean_emb(
                             emb_orig[g.ndata["train_mask"]],
                             label[g.ndata["train_mask"]],
-                        )[torch.unique(label_cond)]
+                        )
 
         loss_avg = sum(losses) / len(losses)
         self.log(

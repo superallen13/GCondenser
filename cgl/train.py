@@ -37,11 +37,11 @@ def main(cfg):
             config=config,
         )
 
-    streaming_data_path = os.path.join(
-        cfg.dataset_dir, "streaming", f"{cfg.dataset_name}"
-    )
+    streaming_data_path = os.path.join(cfg.dataset_dir, "streaming", f"{cfg.dataset_name}")
+    os.makedirs(os.path.dirname(streaming_data_path), exist_ok=True)
     # if streaming_data_path does not exist, use the get method
     if not os.path.exists(streaming_data_path):
+        # first check if the parents dir path exists
         streaming_datasets = get_streaming_datasets(
             cfg.dataset_name, cfg.dataset_dir, cfg.cls_per_graph, cfg.split_ratio
         )
@@ -54,7 +54,10 @@ def main(cfg):
         datamodule = GraphCondenserDataModule(
             incoming_graph[0], cfg.condenser.observe_mode
         )
-        condenser = hydra.utils.instantiate(cfg.condenser, dataset=incoming_graph)
+        g_orig = incoming_graph[0]
+        # add num_classes to the g_orig
+        g_orig.num_classes = incoming_graph.num_classes
+        condenser = hydra.utils.instantiate(cfg.condenser, g=incoming_graph[0])
         callbacks = instantiate_callbacks(cfg.get("callbacks"))
         timer = Timer()
         callbacks.append(timer)
@@ -79,7 +82,10 @@ def main(cfg):
         memory_bank.append(g_cond)
 
     # save the memory bank to the output dir
-    torch.save(memory_bank, os.path.join(output_dir, "memory_bank.pt"))
+    # check if ./data/memory_banks exists
+    if not os.path.exists("./data/memory_banks"):
+        os.makedirs("./data/memory_banks")
+    torch.save(memory_bank, os.path.join("./data/memory_banks", f"{cfg.dataset_name}_{hydra_cfg['runtime']['choices']['condenser']}.pt"))
 
     if cfg.wandb:
         wandb.log({"memory_bank_path": os.path.join(output_dir, "memory_bank.pt")})
@@ -87,14 +93,7 @@ def main(cfg):
 
 
 if __name__ == "__main__":
-    logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
-
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("lightning.pytorch.accelerators.cuda").setLevel(logging.WARNING)
-
     # suppress a warning "SLUM auto-requeueing enabled. Setting signal handlers."
     logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
 
     main()

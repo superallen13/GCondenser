@@ -1,14 +1,8 @@
-import rootutils
-
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-from graph_condenser.models.backbones.gnn import GNN
-
-import dgl.nn as dglnn
-import torch
-import torch.nn.functional as F
+import torch.nn as nn
+import dgl.nn.pytorch.conv as dglnn
 
 
-class SGC(GNN):
+class SGC(nn.Module):
     def __init__(
         self,
         in_size: int,
@@ -17,19 +11,17 @@ class SGC(GNN):
         nlayers: int = 2,
         dropout: float = 0.5,
     ):
-        super().__init__(in_size, out_size)
-        self.layers.append(dglnn.SGConv(in_size, out_size, k=nlayers))
-        
+        super().__init__()
+        self.out_size = out_size
+        self.layer = dglnn.SGConv(in_size, out_size, k=nlayers)
+
     def forward(self, g, features, edge_weight=None):
         h = features
-        for i, layer in enumerate(self.layers):
-            h = layer(g, h, edge_weight=edge_weight)
-            if i != len(self.layers) - 1:
-                h = self.dropout(h)
+        h = self.layer(g, h, edge_weight=edge_weight)
         return h
 
     def encode(self, g, features, edge_weight=None):
-        return self.layers[0](g, features, edge_weight=edge_weight)
+        return self.layer(g, features, edge_weight=edge_weight)
 
 
 def main():
@@ -39,7 +31,10 @@ def main():
     import os
     import time
 
-    from graph_condenser.data.utils import get_dataset
+    import rootutils
+
+    rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+    from graph_condenser.data.utils import prepare_graph
     from graph_condenser.data.datamodule import DataModule
     from graph_condenser.models.backbones.lightning_gnn import LightningGNN
 
@@ -61,11 +56,10 @@ def main():
 
     results = []
     for _ in range(args.repeat):
-        dataset = get_dataset(args.dataset, args.data_dir)
-        graph = dataset[0]
+        graph = prepare_graph(args.dataset, args.data_dir)
 
         datamodule = DataModule(graph, observe_mode=args.observe_mode)
-        gcn = SGC(graph.ndata["feat"].size(1), dataset.num_classes)
+        gcn = SGC(graph.ndata["feat"].size(1), graph.num_classes)
 
         model = LightningGNN(gcn, lr=0.01, wd=5e-4)
         checkpoint_callback = ModelCheckpoint(mode="max", monitor="val_acc")
@@ -81,7 +75,7 @@ def main():
         start = time.time()
         trainer.fit(model, datamodule)
         print(f"Training time: {time.time() - start:.1f}s")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
+        ckpt_path = checkpoint_callback.best_model_path
         start = time.time()
         test_acc = trainer.test(
             model=model, datamodule=datamodule, ckpt_path=ckpt_path, verbose=True
@@ -96,7 +90,7 @@ def main():
         std_dev = 0.0
 
     print(
-        f"5 runs, average accuracy: {sum(results) / len(results) * 100:.1f}; std: {std_dev:.1f}"
+        f"{args.repeat} runs, average accuracy: {sum(results) / len(results) * 100:.1f}; std: {std_dev:.1f}"
     )
 
 

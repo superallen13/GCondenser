@@ -1,0 +1,27 @@
+# @package _global_
+
+defaults:
+  - override /condenser: dm
+
+dataset:
+  dataset_name: products
+  
+condenser:
+  observe_mode: transductive
+  budget: 612  # 0.025% of the original dataset
+  label_distribution: original
+  init_method: kCenter
+
+  gnn:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_val:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_test:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  opt_feat:
+    lr: 1e-1
+
+  loop_outer: 1

@@ -63,37 +63,21 @@ def get_dataset(dataset_name, dataset_dir):
             raw_dir=dataset_dir,
         )
     elif dataset_name == "cora":
-        dataset = CoraGraphDataset(
-            raw_dir=dataset_dir,
-        )
+        dataset = CoraGraphDataset(raw_dir=dataset_dir)
     elif dataset_name == "pubmed":
-        dataset = PubmedGraphDataset(
-            raw_dir=dataset_dir,
-        )
+        dataset = PubmedGraphDataset(raw_dir=dataset_dir)
     elif dataset_name == "flickr":
-        dataset = FlickrDataset(
-            raw_dir=dataset_dir,
-            transform=T.Compose(
-                [
-                    MaskRetype(),
-                ]
-            ),
-        )
+        dataset = FlickrDataset(raw_dir=dataset_dir)
     elif dataset_name == "reddit":
-        dataset = RedditDataset(
-            raw_dir=dataset_dir,
-        )
+        dataset = RedditDataset(raw_dir=dataset_dir)
     elif dataset_name == "arxiv":
         dataset = AsNodePredDataset(
             DglNodePropPredDataset("ogbn-arxiv", root=dataset_dir)
         )
-        transform = T.Compose(
-            [
-                T.AddReverse(),
-                MaskRetype(),
-            ]
+    elif dataset_name == "products":
+        dataset = AsNodePredDataset(
+            DglNodePropPredDataset("ogbn-products", root=dataset_dir)
         )
-        dataset.g = transform(dataset.g)
     else:
         raise ValueError(f"Dataset {dataset_name} not supported")
     return dataset
@@ -102,21 +86,39 @@ def get_dataset(dataset_name, dataset_dir):
 def get_streaming_datasets(dataset_name, dataset_dir, cls_per_graph=2, split_ratio=0.6):
     dataset = get_dataset(dataset_name, dataset_dir)
     original_graph = dataset[0]
+    if dataset_name in ["arxiv"]:
+        transform = T.Compose(
+            [
+                T.AddReverse(),
+                MaskRetype(),
+            ]
+        )
+        original_graph = transform(original_graph)
+    elif dataset_name in ["flickr", "products"]:
+        transform = T.Compose(
+            [
+                MaskRetype(),
+            ]
+        )
+        original_graph = transform(original_graph)
+
     streaming_datasets = []
 
-    labels = original_graph.ndata["label"].squeeze().numpy()
-    num_classes = dataset.num_classes
+    labels = original_graph.ndata["label"].squeeze()
+    num_tasks = dataset.num_classes // cls_per_graph
 
     # Create class lists for streaming
     streaming_cls_list = [
-        list(range(i, i + cls_per_graph)) for i in range(0, num_classes, cls_per_graph)
+        list(range(i * cls_per_graph, (i + 1) * cls_per_graph)) for i in range(num_tasks)
     ]
 
     for streaming_cls in streaming_cls_list:
+        print(f"Streaming classes: {streaming_cls}")
         # Select nodes that belong to the current class list
-        selected_nodes = np.isin(labels, streaming_cls)
-        selected_node_indices = np.where(selected_nodes)[0]
-        streaming_graph = dgl.node_subgraph(original_graph, selected_node_indices)
+        mask = torch.zeros_like(labels, dtype=torch.bool)
+        for cls in streaming_cls:
+            mask |= labels == cls
+        streaming_graph = original_graph.subgraph(mask)
 
         # Split the streaming graph into train, validation, and test sets
         n = streaming_graph.number_of_nodes()
@@ -127,15 +129,11 @@ def get_streaming_datasets(dataset_name, dataset_dir, cls_per_graph=2, split_rat
         streaming_graph.ndata["train_mask"] = torch.zeros(n, dtype=torch.bool)
         streaming_graph.ndata["val_mask"] = torch.zeros(n, dtype=torch.bool)
         streaming_graph.ndata["test_mask"] = torch.zeros(n, dtype=torch.bool)
+
         streaming_graph.ndata["train_mask"][perm[:train_n]] = True
         streaming_graph.ndata["val_mask"][perm[train_n : train_n + val_n]] = True
         streaming_graph.ndata["test_mask"][perm[train_n + val_n :]] = True
 
-        # # Apply transformations if needed for specific datasets
-        # if dataset_name in ["arxiv", "flickr", "reddit"]:
-        #     transform = StandardTransform()
-        #     streaming_graph = transform(streaming_graph)
-        
         streaming_graph = dgl.add_self_loop(streaming_graph)
         streaming_dataset = StreamingDataset(streaming_graph)
         streaming_datasets.append(streaming_dataset)

@@ -1,11 +1,8 @@
-from graph_condenser.models.backbones.gnn import GNN
-
-import torch
 import torch.nn as nn
-import dgl.nn as dglnn
-import torch.nn.functional as F
+import dgl.nn.pytorch.conv as dglnn
 
-class ChebNet(GNN):
+
+class ChebNet(nn.Module):
     def __init__(
         self,
         in_size: int,
@@ -14,7 +11,9 @@ class ChebNet(GNN):
         nlayers: int = 2,
         dropout: float = 0.5,
     ):
-        super().__init__(in_size, out_size)
+        super().__init__()
+        self.out_size = out_size
+        self.layers = nn.ModuleList([])
         if nlayers == 1:
             self.layers.append(dglnn.ChebConv(in_size, out_size, 2))
         else:
@@ -23,12 +22,12 @@ class ChebNet(GNN):
                 self.layers.append(dglnn.ChebConv(hid_size, hid_size, 2))
             self.layers.append(dglnn.ChebConv(hid_size, out_size, 2))
         self.dropout = nn.Dropout(dropout)
-    
+
     def forward(self, g, features, edge_weight=None):
         h = features
         for i, layer in enumerate(self.layers):
             h = layer(g, h)
             if i != len(self.layers) - 1:
-                h = F.relu(h)
+                # the activation function is relu in the dgl conv layer
                 h = self.dropout(h)
         return h

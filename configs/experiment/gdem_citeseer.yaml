@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - override /condenser: gdem
+
+seed: 1113
+
+dataset:
+  dataset_name: citeseer
+
+condenser:
+  observe_mode: transductive
+  budget: 30
+
+  eigen_k: 30
+  ratio: 1.0
+  alpha: 1.0
+  beta: 1e-5
+  gamma: 1.0
+
+  opt_eigenvec:
+    lr: 1e-2
+  
+  opt_feat:
+    lr: 1e-4
+
+  update_epoch_adj: 5
+  update_epoch_feat: 1

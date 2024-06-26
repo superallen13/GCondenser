@@ -1,0 +1,32 @@
+# @package _global_
+
+defaults:
+  - override /condenser: gdem
+
+seed: 1113
+
+dataset:
+  dataset_name: cora
+
+condenser:
+  observe_mode: transductive
+  budget: 35
+
+  eigen_k: 35
+  ratio: 1.0
+  alpha: 1e-4
+  beta: 1e-7
+  gamma: 1e-2
+
+  opt_eigenvec:
+    lr: 5e-4
+  
+  opt_feat:
+    lr: 1e-4
+
+  update_epoch_adj: 15
+  update_epoch_feat: 5
+
+callbacks:
+  early_stopping:
+    patience: 30

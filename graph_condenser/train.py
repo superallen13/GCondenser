@@ -1,4 +1,3 @@
-import os
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -13,6 +12,7 @@ from pytorch_lightning.profilers import SimpleProfiler
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+from graph_condenser.data.datamodule import GraphCondenserDataModule
 from graph_condenser.utils import (
     RankedLogger,
     extras,
@@ -39,99 +39,91 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
-    # FIXME...
-    from graph_condenser.data.datamodule import GraphCondenserDataModule
-
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         pl.seed_everything(cfg.seed, workers=True)
 
     profiler = SimpleProfiler(filename="profiler-report")
 
+    log.info("Instantiating loggers...")
+    loggers: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
     # get the original graph dataset and initialise the condensed grpah
     log.info(f"Instantiating graph dataset <{cfg.dataset.dataset_name}>")
-    dataset = hydra.utils.call(cfg.dataset)
-    datamodule = GraphCondenserDataModule(dataset[0], cfg.condenser.observe_mode)
+    g = hydra.utils.call(cfg.dataset)
 
     log.info(f"Instantiating condenser <{cfg.condenser._target_}>")
-    condenser: LightningModule = hydra.utils.instantiate(cfg.condenser, dataset=dataset)
+    condenser: LightningModule = hydra.utils.instantiate(cfg.condenser, g=g)
 
     log.info("Instantiating callbacks...")
-    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))  # currently only support WandbLogger
     timer = Timer()
     callbacks.append(timer)
-
-    log.info("Instantiating loggers...")
-    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(
         cfg.trainer,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         callbacks=callbacks,
-        logger=logger,
+        logger=loggers,
         inference_mode=False,
         profiler=profiler,
+        num_sanity_val_steps=0,
     )
 
     object_dict = {
         "cfg": cfg,
         "condenser": condenser,
         "callbacks": callbacks,
-        "logger": logger,
+        "logger": loggers,
         "trainer": trainer,
     }
 
-    if logger:
+    if loggers:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
-    if cfg.get("train"):
-        log.info("Starting training!")
-        trainer.fit(
-            model=condenser,
-            datamodule=datamodule,
-            ckpt_path=cfg.get("ckpt_path"),
-        )
-        fit_profiler_report_path = os.path.join(profiler.dirpath, "fit-" + profiler.filename + ".txt")
-        log.info("Fit profilter report path: " + fit_profiler_report_path)
+    log.info("Starting training!")
+    datamodule = GraphCondenserDataModule(g, cfg.condenser.observe_mode)
+    trainer.fit(
+        model=condenser,
+        datamodule=datamodule,
+        ckpt_path=cfg.get("ckpt_path"),
+    )
 
     train_metrics = trainer.callback_metrics
 
-    if cfg.get("test"):
-        log.info("Starting testing!")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
+    log.info("Starting testing!")
+    checkpoint = trainer.checkpoint_callback
+    if checkpoint is not None:
+        ckpt_path = checkpoint.best_model_path
         if ckpt_path == "":
-            log.warning("Best ckpt not found! Using current weights for testing...")
+            log.warning("best ckpt not found! using current weights for testing...")
             ckpt_path = None
-        test_accs = trainer.test(
-            model=condenser, datamodule=datamodule, ckpt_path=ckpt_path, verbose=False
-        )[0]
-        log.info(
-            f"Test accuracy: {test_accs['test/acc_mean'] * 100:.1f} ± {test_accs['test/acc_std'] * 100:.1f}"
-        )
-        log.info(f"Best ckpt path: {ckpt_path}")
-        test_profiler_report_path = os.path.join(profiler.dirpath, "test-" + profiler.filename + ".txt")
-        log.info("Test profilter report path: " + test_profiler_report_path)
-
+    else:
+        log.warning("best ckpt not found! using current weights for testing...")
+        ckpt_path = None
+    test_accs = trainer.test(
+        model=condenser, datamodule=datamodule, ckpt_path=ckpt_path, verbose=False
+    )[0]
+    log.info(
+        f"Test accuracy: {test_accs['test/acc_mean'] * 100:.1f} ± {test_accs['test/acc_std'] * 100:.1f}"
+    )
+    log.info(f"Best ckpt path: {ckpt_path}")
     log.info(f"Train time: {timer.time_elapsed('train'):.1f} s")
     log.info(f"Validation time: {timer.time_elapsed('validate'):.1f} s")
     log.info(f"Test time: {timer.time_elapsed('test'):.1f} s")
 
     # log ckpt path, train time, validation time, test time
-    if logger:
+    if loggers:
         for logger in trainer.loggers:
             logger.log_metrics(
                 {
-                    "trainer/ckpt_path": ckpt_path,
-                    "trainer/fit_profiler_report_path": fit_profiler_report_path,
-                    "trainer/test_profiler_report_path": test_profiler_report_path,
                     "train/time": timer.time_elapsed("train"),
                     "val/time": timer.time_elapsed("validate"),
                     "test/time": timer.time_elapsed("test"),
                 }
             )
-
     test_metrics = trainer.callback_metrics
 
     # merge train and test metrics
@@ -148,12 +140,10 @@ def main(cfg: DictConfig) -> Optional[float]:
     :return: Optional[float] with optimized metric value.
     """
     # suppress some logs from pytorch_lightning
-    logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
+    # logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
+    # logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
 
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("lightning.pytorch.accelerators.cuda").setLevel(logging.WARNING)
-    
+    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
 
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)

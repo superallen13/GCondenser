@@ -1,0 +1,13 @@
+# @package _global_
+
+defaults:
+  - override /condenser: dm
+
+condenser:
+  budget: 20
+  init_method: random
+
+  opt_feat:
+    lr: 1e-3
+
+  loop_outer: 1

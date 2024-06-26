@@ -3,59 +3,55 @@ import os
 from graph_condenser.data.utils import get_npc, get_g_cond
 from graph_condenser.data.datamodule import CondensedGraphDataModule
 from graph_condenser.models.backbones.lightning_gnn import LightningGNN
-from graph_condenser.models.evaluators.sgc import SGCEvaluator
-from graph_condenser.models.evaluators.lightning_evaluator import LightningEvaluator
+from graph_condenser.models.validators.sgc import SGCEvaluator
+from graph_condenser.models.validators.lightning_evaluator import LightningEvaluator
 from graph_condenser.models.components.gntk import GNTK
 
 
 import dgl
-import hydra
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning import LightningModule, Trainer
+from hydra.core.hydra_config import HydraConfig
 from torchmetrics import MaxMetric
 
 
 class Condenser(LightningModule):
     def __init__(
         self,
-        dataset: dgl.data.DGLDataset,
+        g,
         observe_mode: str,
         budget: int,
         label_distribution: str,
         init_method: str,
-        val_mode: str,
-        gnn_val: torch.nn.Module,
+        validator: torch.nn.Module,
         lr_val: float,
         wd_val: float,
-        gnn_test: torch.nn.Module,
+        tester: torch.nn.Module,
         lr_test: float,
         wd_test: float,
     ):
         super().__init__()
-        self.save_hyperparameters(
-            logger=False, ignore=["dataset", "gnn_val", "gnn_test"]
-        )
+        self.save_hyperparameters(logger=False, ignore=["g", "validator", "tester"])
         self.automatic_optimization = False
-        self.num_node_features = dataset[0].ndata["feat"].shape[1]
-        self.num_classes = dataset.num_classes
+        self.num_node_features = g.ndata["feat"].shape[1]
+        self.num_classes = g.num_classes
 
         # Initilaise the condensed graph.
-        self.npc = get_npc(dataset, budget, label_distribution)
-        self.g_cond = get_g_cond(dataset, observe_mode, self.npc, init_method)
+        self.npc = get_npc(g, budget, label_distribution)
+        self.g_cond = get_g_cond(g, observe_mode, self.npc, init_method)
         self.feat_cond = self.g_cond.ndata["feat"]
 
         # instantiate the GNNs in the validation and test steps
-        self.gnn_val = gnn_val
-        self.gnn_test = gnn_test
+        self.validator = validator
+        self.tester = tester
 
         self.val_acc_best = MaxMetric()
 
         # create a directory to store the checkpoint for the test step
-        hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
-        output_dir = hydra_cfg["runtime"]["output_dir"]
+        output_dir = HydraConfig.get().runtime.output_dir
         self.test_ckpt_dir = os.path.join(output_dir, "test_step_ckpt")
         if not os.path.exists(self.test_ckpt_dir):
             os.makedirs(self.test_ckpt_dir)
@@ -77,54 +73,7 @@ class Condenser(LightningModule):
                 g_cond.ndata["feat"]
             )
 
-        if self.hparams.val_mode == "GNN":
-            gnn_val = self.gnn_val(self.num_node_features, self.num_classes)
-            datamodule = CondensedGraphDataModule(
-                g_cond, data, self.hparams.observe_mode
-            )
-            if isinstance(gnn_val, SGCEvaluator):
-                model = LightningEvaluator(
-                    gnn_val, self.hparams.lr_val, self.hparams.wd_val
-                )
-            else:
-                model = LightningGNN(gnn_val, self.hparams.lr_val, self.hparams.wd_val)
-            trainer = Trainer(
-                accelerator="gpu" if torch.cuda.is_available() else "cpu",
-                devices=1,
-                max_epochs=200,
-                log_every_n_steps=1,
-                enable_checkpointing=False,
-                enable_progress_bar=False,
-                enable_model_summary=False,
-                logger=False,
-            )
-            trainer.fit(model, datamodule)
-            self.log(
-                "val/acc",
-                model.val_acc_best.compute(),
-                batch_size=1,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-            )
-
-            self.val_acc_best(model.val_acc_best.compute())
-            # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
-            # otherwise metric would be reset by lightning after each epoch
-            self.log(
-                "val/acc_best",
-                self.val_acc_best.compute(),
-                batch_size=1,
-                sync_dist=True,
-                prog_bar=True,
-            )
-
-            # make sure the memory used in the validation step is released
-            del gnn_val, model, trainer, datamodule
-            torch.cuda.empty_cache()
-            pl.utilities.memory.garbage_collection_cuda()
-
-        elif self.hparams.val_mode == "GNTK":
+        if self.validator == "gntk":
             gntk = GNTK(num_layers=3, num_mlp_layers=2, scale="degree")
 
             data_val = dgl.node_subgraph(data, data.ndata["val_mask"])
@@ -197,6 +146,52 @@ class Condenser(LightningModule):
                 sync_dist=True,
                 prog_bar=True,
             )
+        else:
+            gnn_val = self.validator(self.num_node_features, self.num_classes)
+            datamodule = CondensedGraphDataModule(
+                g_cond, data, self.hparams.observe_mode
+            )
+            if isinstance(gnn_val, SGCEvaluator):
+                model = LightningEvaluator(
+                    gnn_val, self.hparams.lr_val, self.hparams.wd_val
+                )
+            else:
+                model = LightningGNN(gnn_val, self.hparams.lr_val, self.hparams.wd_val)
+            trainer = Trainer(
+                accelerator="gpu" if torch.cuda.is_available() else "cpu",
+                devices=1,
+                max_epochs=200,
+                log_every_n_steps=1,
+                enable_checkpointing=False,
+                enable_progress_bar=False,
+                enable_model_summary=False,
+                logger=False,
+            )
+            trainer.fit(model, datamodule)
+            self.log(
+                "val/acc",
+                model.val_acc_best.compute(),
+                batch_size=1,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+
+            self.val_acc_best(model.val_acc_best.compute())
+            # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
+            # otherwise metric would be reset by lightning after each epoch
+            self.log(
+                "val/acc_best",
+                self.val_acc_best.compute(),
+                batch_size=1,
+                sync_dist=True,
+                prog_bar=True,
+            )
+
+            # make sure the memory used in the validation step is released
+            del datamodule, gnn_val, model, trainer
+            torch.cuda.empty_cache()
+            pl.utilities.memory.garbage_collection_cuda()
 
     def on_save_checkpoint(self, checkpoint):
         # save the g_cond
@@ -220,9 +215,9 @@ class Condenser(LightningModule):
         torch.set_grad_enabled(True)  # enable gradients for the test step
 
         results = []
-        table_cols = []
+        table_cols = ["test_acc_mean", "test_acc_std"]
         for i in range(5):
-            gnn_test = self.gnn_test(self.num_node_features, self.num_classes)
+            gnn_test = self.tester(self.num_node_features, self.num_classes)
             model = LightningGNN(gnn_test, self.hparams.lr_test, self.hparams.wd_test)
             checkpoint = ModelCheckpoint(
                 dirpath=self.test_ckpt_dir,
@@ -233,7 +228,7 @@ class Condenser(LightningModule):
             trainer = Trainer(
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 devices=1,
-                max_epochs=600,
+                max_epochs=100,
                 log_every_n_steps=1,
                 callbacks=[checkpoint],
                 enable_model_summary=False,
@@ -241,7 +236,7 @@ class Condenser(LightningModule):
                 logger=False,
             )
             trainer.fit(model, datamodule)
-            ckpt_path = trainer.checkpoint_callback.best_model_path
+            ckpt_path = checkpoint.best_model_path
             test_acc = trainer.test(
                 model=model, datamodule=datamodule, ckpt_path=ckpt_path, verbose=True
             )
@@ -252,12 +247,13 @@ class Condenser(LightningModule):
         acc_mean = sum(results) / len(results)
         acc_std = torch.std(torch.tensor(results)).item()
         table_data = [acc_mean, acc_std] + results
-        table_cols = ["test_acc_mean", "test_acc_std"] + table_cols
 
         if self.logger is not None:
+            # assume the logger is WandbLogger
             self.logger.log_table(
                 key="test/acc_table", columns=table_cols, data=[table_data]
             )
+
         self.log(
             "test/acc_mean",
             acc_mean,
@@ -272,6 +268,7 @@ class Condenser(LightningModule):
             sync_dist=True,
             prog_bar=True,
         )
+
         return acc_mean, acc_std
 
     def on_test_end(self):

@@ -25,13 +25,14 @@ torch
 pytorch-lightning
 ogb  # fetech ogb datasets
 hydra  # configuration management
+rootutils
+rich
 ```
 
 Some packages are optional if you would like to use some advanced features:
 ```
 wandb  # wandb logger
 hydra-optuna-sweeper  # hyperparameter search using optuna
-hydra-submitit-launcher  # submit jobs via submitit in SLURM
 ```
 
 ## Usage of `GCondenser`
@@ -53,11 +54,11 @@ To effectively use `GCondenser`, you may need to lookup the following parameters
 
 | Item           | Description                                                                                                   | Config Key                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| NPC            | `GCondenser` provides three node-per-class (NPC) initialisation methods: `original`, `balanced`, `stric`. | condenser.labe_distribution |
-| initialisation | Node features of condensed graph can be initialised by `randomChoice` and `kCenter`                           | condenser.init_method       |
+| NPC            | `GCondenser` provides three node-per-class (NPC) initialisation methods: `original`, `balanced`. | condenser.labe_distribution |
+| initialisation | Node features of condensed graph can be initialised by `noise`, `random` or `kCenter`                           | condenser.init_method       |
 | train model    | The backbone model for condensing the original graph                                                          | condenser.gnn               |
-| validate model | The model trained with condensed graph in the validation step                                                 | condenser.gnn_val           |
-| test model     | The model trained with condensed graph in the test step                                                       | condenser.gnn_test |
+| validate model | The model trained with condensed graph in the validation step                                                 | condenser.validator           |
+| test model     | The model trained with condensed graph in the test step                                                       | condenser.tester |
 
 ## Add a New Graph Condenser
 You can easily add new graph condensers by creating a new class that inherits from `graph_condenser.models.condenser.Condenser`. In this new class, you will need to implement a `training_step()` method to define how the condensed graph should be updated each epoch. Please check out our [step-by-step guide](./docs/new-condenser.md) for adding a new method.

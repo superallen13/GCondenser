@@ -45,7 +45,7 @@ class StructureGenerator(nn.Module):
         edge_weight[self_loop_mask] = 1.0  # set self-loop weight to 1
 
         return edge_weight
-
+        
     @torch.no_grad()
     def inference(self, feat):
         edge_weight = self.forward(feat)

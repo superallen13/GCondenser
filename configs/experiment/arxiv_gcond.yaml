@@ -1,8 +1,10 @@
 # @package _global_
 
 defaults:
-  - override /dataset: arxiv
   - override /condenser: gcond
+
+dataset:
+  dataset_name: arxiv
 
 condenser:
   observe_mode: transductive
@@ -20,13 +22,13 @@ condenser:
     _target_: graph_condenser.models.backbones.sgc.SGC
 
   opt_adj:
-    lr: 1e-1
+    lr: 1e-2
 
   opt_feat:
-    lr: 1e-1
+    lr: 1e-2
 
-  loop_outer: 5
-  loop_inner: 10
+  loop_outer: 15
+  loop_inner: 5
 
   update_epoch_adj: 10
   update_epoch_feat: 20

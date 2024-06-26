@@ -1,15 +1,9 @@
 import random
-import logging
-from typing import List
 from collections import Counter
 
-from graph_condenser.data.datamodule import DataModule, CondensedGraphDataModule
-from graph_condenser.models.backbones.gcn import GCN
-from graph_condenser.models.backbones.lightning_gnn import LightningGNN
-
+import rootutils
 import numpy as np
 import torch
-import torch.nn.functional as F
 import dgl
 import dgl.transforms as T
 from dgl.data import (
@@ -26,10 +20,15 @@ from dgl.data import (
     CoauthorPhysicsDataset,
 )
 from dgl.data import AsNodePredDataset
+from dgl.data.utils import add_nodepred_split
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
 from ogb.nodeproppred import DglNodePropPredDataset
 from sklearn.preprocessing import StandardScaler
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+from graph_condenser.data.datamodule import DataModule
+from graph_condenser.models.backbones.gcn import GCN
+from graph_condenser.models.backbones.lightning_gnn import LightningGNN
 
 
 class StandardTransform(object):
@@ -43,6 +42,8 @@ class StandardTransform(object):
 
 
 class MaskRetype(object):
+    """Retype the mask to bool type"""
+
     def __call__(self, data):
         data.ndata["train_mask"] = (
             data.ndata["train_mask"].clone().detach().to(dtype=torch.bool)
@@ -56,113 +57,132 @@ class MaskRetype(object):
         return data
 
 
-def get_dataset(dataset_name, data_dir):
+def get_sparsified_k_hop_subgraph(g, seed_nodes, fanouts):
+    """
+    Modifed from the DGL tutorial:
+    https://github.com/BarclayII/dgl/blob/new-tutorials/new-tutorial/L3_custom_sampler.ipynb
+    """
+    all_nodes = seed_nodes
+    neighbor_nodes = seed_nodes
+    for fanout in fanouts:
+        src_nodes = seed_nodes.repeat_interleave(fanout)
+        nodes, _ = dgl.sampling.random_walk(g, src_nodes, length=1)
+        dst_nodes = nodes[:, 1]
+        # When a random walk cannot continue because of lacking of successors (e.g. a
+        # node is isolate, with no edges going out), dgl.sampling.random_walk will
+        # pad the trace with -1.  Since OGB Products have isolated nodes, we should
+        # look for the -1 entries and remove them.
+        # mask = (dst_nodes != -1)
+        # dst_nodes = dst_nodes[mask]
+        
+        # dst_nodes can not be repeated and should not appeared in all_nodes
+        mask = ~torch.any(dst_nodes[:, None] == all_nodes, dim=-1)
+        neighbor_nodes = dst_nodes[mask].unique()
+        all_nodes = torch.cat([all_nodes, neighbor_nodes])
+    sg = dgl.node_subgraph(g, all_nodes)
+    return sg
+
+
+def get_raw_dataset(dataset_name, dataset_dir):
     dataset_name = dataset_name.lower()
     if dataset_name == "citeseer":
-        dataset = CiteseerGraphDataset(
-            raw_dir=data_dir,
-            transform=T.Compose([T.AddSelfLoop()]),
-        )
+        dataset = CiteseerGraphDataset(raw_dir=dataset_dir)
     elif dataset_name == "cora":
-        dataset = CoraGraphDataset(
-            raw_dir=data_dir,
-            transform=T.Compose([T.AddSelfLoop()]),
-        )
+        dataset = CoraGraphDataset(raw_dir=dataset_dir)
     elif dataset_name == "pubmed":
-        dataset = PubmedGraphDataset(
-            raw_dir=data_dir,
-            transform=T.Compose([T.AddSelfLoop()]),
-        )
+        dataset = PubmedGraphDataset(raw_dir=dataset_dir)
     elif dataset_name == "flickr":
-        dataset = FlickrDataset(
-            raw_dir=data_dir,
-            transform=T.Compose(
-                [
-                    T.AddSelfLoop(),
-                    MaskRetype(),
-                    T.RowFeatNormalizer(),
-                    StandardTransform(),
-                ]
-            ),
-        )
+        dataset = FlickrDataset(raw_dir=dataset_dir)
     elif dataset_name == "reddit":
-        dataset = RedditDataset(
-            raw_dir=data_dir,
-            transform=T.Compose(
-                [T.AddSelfLoop(), T.RowFeatNormalizer(), StandardTransform()]
-            ),
-        )
+        dataset = RedditDataset(raw_dir=dataset_dir)
     elif dataset_name == "arxiv":
-        transform = T.Compose(
-            [
-                T.AddReverse(),
-                T.AddSelfLoop(),
-                MaskRetype(),
-                T.RowFeatNormalizer(),
-                StandardTransform(),
-            ]
+        dataset = AsNodePredDataset(
+            DglNodePropPredDataset("ogbn-arxiv", root=dataset_dir), raw_dir=dataset_dir
         )
-        dataset = AsNodePredDataset(DglNodePropPredDataset("ogbn-arxiv", root=data_dir))
-        dataset.g = transform(dataset.g)
     elif dataset_name == "products":
-        transform = T.Compose(
-            [
-                T.AddSelfLoop(),
-                MaskRetype(),
-                T.RowFeatNormalizer(),
-                StandardTransform(),
-            ]
-        )
         dataset = AsNodePredDataset(
-            DglNodePropPredDataset("ogbn-products", root=data_dir)
+            DglNodePropPredDataset("ogbn-products", root=dataset_dir), raw_dir=dataset_dir
         )
-        dataset.g = transform(dataset.g)
     elif dataset_name == "papers100m":
-        transform = T.Compose([T.AddSelfLoop(), MaskRetype()])
         dataset = AsNodePredDataset(
-            DglNodePropPredDataset("ogbn-papers100M", root=data_dir)
+            DglNodePropPredDataset("ogbn-papers100M", root=dataset_dir), raw_dir=dataset_dir
         )
-        dataset.g = transform(dataset.g)
     elif dataset_name == "corafull":
-        dataset = CoraFullDataset(raw_dir=data_dir, transform=T.AddSelfLoop())
+        dataset = CoraFullDataset(raw_dir=dataset_dir)
     elif dataset_name == "a-computer":
-        dataset = AmazonCoBuyComputerDataset(
-            raw_dir=data_dir, transform=T.AddSelfLoop()
-        )
+        dataset = AmazonCoBuyComputerDataset(raw_dir=dataset_dir)
     elif dataset_name == "a-photo":
-        dataset = AmazonCoBuyPhotoDataset(raw_dir=data_dir, transform=T.AddSelfLoop())
+        dataset = AmazonCoBuyPhotoDataset(raw_dir=dataset_dir)
     elif dataset_name == "c-cs":
-        dataset = CoauthorCSDataset(raw_dir=data_dir, transform=T.AddSelfLoop())
+        dataset = CoauthorCSDataset(raw_dir=dataset_dir)
     elif dataset_name == "c-physics":
-        dataset = CoauthorPhysicsDataset(raw_dir=data_dir, transform=T.AddSelfLoop())
+        dataset = CoauthorPhysicsDataset(raw_dir=dataset_dir)
     else:
         raise ValueError(f"Dataset {dataset_name} not supported")
-
     if dataset_name in ["corafull", "a-computer", "a-photo", "c-cs", "c-physics"]:
-        # make train/val/test masks, 20 nodes per class for trianing, 500 for validation and the rest for testing
-        data = dataset._graph
-        y = data.ndata["label"]
-        data.ndata["train_mask"] = torch.zeros(data.num_nodes(), dtype=torch.bool)
-        data.ndata["val_mask"] = torch.zeros(data.num_nodes(), dtype=torch.bool)
-        data.ndata["test_mask"] = torch.zeros(data.num_nodes(), dtype=torch.bool)
-        for i in range(dataset.num_classes):
-            idx = (y == i).nonzero(as_tuple=True)[0]
-            idx = idx[torch.randperm(len(idx))]
-            data.ndata["train_mask"][idx[:20]] = True
-            data.ndata["val_mask"][idx[20:520]] = True
-            data.ndata["test_mask"][idx[20:520]] = True
+        add_nodepred_split(dataset, [0.2, 0.4, 0.4])
     return dataset
 
 
-def get_npc(dataset, budget, label_distribution):
-    assert label_distribution in ["balanced", "original"]
-    g = dataset[0]
+def prepare_graph(dataset_name: str, dataset_dir: str):
+    assert dataset_name in [
+        "citeseer",
+        "cora",
+        "pubmed",
+        "corafull",
+        "a-computer",
+        "a-photo",
+        "c-cs",
+        "flickr",
+        "c-physics",
+        "reddit",
+        "arxiv",
+        "products",
+        "papers100m",
+    ]  # only support these datasets for condensation
+    raw_dataset = get_raw_dataset(dataset_name, dataset_dir)
+    if dataset_name in ["reddit"]:
+        transform = T.Compose([T.AddSelfLoop(), StandardTransform()])
+    elif dataset_name in ["flickr"]:
+        transform = T.Compose([MaskRetype(), T.AddSelfLoop(), StandardTransform()])
+    elif dataset_name in ["arxiv"]:
+        transform = T.Compose(
+            [
+                MaskRetype(),
+                T.AddReverse(),
+                T.AddSelfLoop(),
+                StandardTransform(),
+            ]
+        )
+    elif dataset_name in ["papers100m"]:
+        raw_dataset[0].ndata["label"] = raw_dataset[0].ndata["label"].long()
+        transform = T.Compose(
+            [
+                MaskRetype(),
+                T.AddReverse(),
+                T.AddSelfLoop(),
+                StandardTransform(),
+            ]
+        )
+    elif dataset_name in ["products"]:
+        transform = T.Compose([MaskRetype(), T.AddSelfLoop()])
+    else:
+        # add self-loops
+        transform = T.Compose([T.AddSelfLoop()])
+
+    graph = raw_dataset[0]
+    graph = transform(graph)
+    setattr(graph, "num_classes", raw_dataset.num_classes)
+    return graph
+
+
+def get_npc(g, budget, label_distribution):
     y_train = g.ndata["label"][g.ndata["train_mask"]]
     classes = np.unique(y_train)
     class_count = Counter(y_train.tolist())
     if label_distribution == "balanced":
         cls_ratios = {cls: 1 / len(classes) for cls in classes}
-        npc = [int(budget * cls_ratios.get(c, 0)) for c in range(dataset.num_classes)]
+        npc = [int(budget * cls_ratios.get(c, 0)) for c in range(g.num_classes)]
         gap = budget - sum(npc)  # gap should between 0 and num_classes (inclusive)
 
         # select the most gap frequent classes and plus 1
@@ -173,7 +193,7 @@ def get_npc(dataset, budget, label_distribution):
         # for each existing class in the classes, at least one node.
         npc = [
             max(1, int(budget * class_ratios[c])) if c in class_count else 0
-            for c in range(dataset.num_classes)
+            for c in range(g.num_classes)
         ]
         gap = budget - sum(npc)  # gap can be negative if budget is too small
 
@@ -182,39 +202,45 @@ def get_npc(dataset, budget, label_distribution):
             for _ in range(-gap):
                 new_cls_ratios = {c: npc[c] / budget for c in classes}
                 diff = {c: new_cls_ratios[c] - class_ratios[c] for c in classes}
+                sorted_classes = sorted(
+                    diff, key=lambda x: float(diff[x]), reverse=True
+                )
                 # find the c which is the class with the largest difference but npc[c] must be greater than 1
-                for c in sorted(diff, key=diff.get, reverse=True):
+                for c in sorted_classes:
                     if npc[c] > 1:
                         npc[c] -= 1
                         break
         elif gap > 0:
+            candidate_labels = [c for c in classes if npc[c] < class_count[c]]
             for _ in range(gap):
-                new_cls_ratios = {c: npc[c] / budget for c in classes}
-                diff = {c: new_cls_ratios[c] - class_ratios[c] for c in classes}
-                c = max(diff, key=diff.get)
+                new_cls_ratios = {c: npc[c] / budget for c in candidate_labels}
+                diff = {c: new_cls_ratios[c] - class_ratios[c] for c in candidate_labels}
+                c = max(diff, key=lambda x: float(diff[x]))
                 npc[c] += 1
+                gap -= 1
+                candidate_labels = [c for c in classes if npc[c] < class_count[c]]
+    else:
+        raise ValueError(f"Label distribution {label_distribution} not supported")
     assert sum(npc) == budget
     return npc
 
 
 def _graph_sampling(
-    dataset,
-    sampling_method,
+    g,
+    method,
     npc,
     observe_mode="transductive",
 ):
-    g_orig = dataset[0]
-    method = sampling_method.lower()
     if method == "kcenter":
-        datamodule = DataModule(g_orig, observe_mode)
-        backbone = GCN(g_orig.ndata["feat"].shape[1], dataset.num_classes)
+        datamodule = DataModule(g, observe_mode)
+        backbone = GCN(g.ndata["feat"].shape[1], g.num_classes)
         model = LightningGNN(backbone, lr=0.01, wd=5e-4)
         trainer = Trainer(
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
             devices=1,
-            max_epochs=100,
+            max_epochs=50,
             enable_checkpointing=False,
-            enable_progress_bar=False,
+            enable_progress_bar=True,
             enable_model_summary=False,
             logger=False,
             # we don't need to validate the model
@@ -222,12 +248,11 @@ def _graph_sampling(
             num_sanity_val_steps=0,
         )
         trainer.fit(model, datamodule)
-
-        g_orig.to(model.device)
-        emb = model.encode(g_orig, g_orig.ndata["feat"])
+        g = g.to(model.device)
+        emb = model.encode(g, g.ndata["feat"])
         idx_selected = []
-        for cls in range(dataset.num_classes):
-            train_mask_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata["train_mask"]
+        for cls in range(g.num_classes):
+            train_mask_cls = (g.ndata["label"] == cls) & g.ndata["train_mask"]
             idx = train_mask_cls.nonzero(as_tuple=True)[0]
             emb_cls = emb[train_mask_cls]
             mean_cls = torch.mean(emb_cls, dim=0, keepdim=True)
@@ -235,28 +260,22 @@ def _graph_sampling(
             _, idx_centers = torch.topk(dis, npc[cls], largest=False)
             idx_selected.append(idx[idx_centers])
         idx_selected = torch.cat(idx_selected)
-        sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
-    elif method == "randomchoice":
+        sampled_graph = dgl.node_subgraph(g, idx_selected)
+    elif method == "random":
         idx_selected = []
-        classes = dataset.num_classes
-        for i, cls in enumerate(range(classes)):
-            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata[
-                "train_mask"
-            ]
+        for i, cls in enumerate(range(g.num_classes)):
+            train_mask_at_cls = (g.ndata["label"] == cls) & g.ndata["train_mask"]
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
-        sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
-    elif method == "randomnoise":
+        sampled_graph = dgl.node_subgraph(g, idx_selected)
+    elif method == "noise":
         # TODO simplify this process, currently implementaion is not efficient
         idx_selected = []
-        classes = g_orig.ndata["label"][g_orig.ndata["train_mask"]].unique()
-        for i, cls in enumerate(classes):
-            train_mask_at_cls = (g_orig.ndata["label"] == cls) & g_orig.ndata[
-                "train_mask"
-            ]
+        for i, cls in enumerate(range(g.num_classes)):
+            train_mask_at_cls = (g.ndata["label"] == cls) & g.ndata["train_mask"]
             ids_at_cls = train_mask_at_cls.nonzero(as_tuple=True)[0].tolist()
             idx_selected += random.sample(ids_at_cls, k=npc[i])
-        sampled_graph = dgl.node_subgraph(g_orig, idx_selected)
+        sampled_graph = dgl.node_subgraph(g, idx_selected)
         # change the sampled_graph's features to ranodm gussain noise
         sampled_graph.ndata["feat"] = torch.randn_like(sampled_graph.ndata["feat"])
     else:
@@ -265,12 +284,12 @@ def _graph_sampling(
 
 
 def get_g_cond(
-    dataset: dgl.data.DGLDataset,
-    observe_mode: str,
-    npc: List[int],
-    init_method: str = "kCenter",
-) -> dgl.DGLGraph:
-    g_cond = _graph_sampling(dataset, init_method, npc, observe_mode)
+    g,
+    observe_mode,
+    npc,
+    init_method="kcenter",
+):
+    g_cond = _graph_sampling(g, init_method, npc, observe_mode)
 
     g_cond.ndata["feat"] = torch.nn.Parameter(g_cond.ndata["feat"], requires_grad=True)
     g_cond.ndata["train_mask"] = torch.ones(g_cond.num_nodes(), dtype=torch.bool)
@@ -282,85 +301,37 @@ def get_g_cond(
     return g_cond
 
 
-def dataset_statistic(
-    datasets=[
-        "citeseer",
-        "cora",
-        "pubmed",
-        "arxiv",
-        "flickr",
-        "reddit",
-        "products",
-        "corafull",
-        "a-computer",
-        "a-photo",
-        "c-cs",
-        "c-physics",
-    ],
-    data_dir="./data",
-):
+def dataset_statistic(dataset):
     """
     Return the statistics of the given datasets.
     Inoformation including the number of nodes, edges, features, classes,
     training nodes, validation nodes and test nodes.
     """
-    for dataset_name in datasets:
-        dataset = get_dataset(dataset_name, data_dir)
-        data = dataset[0]
-        num_nodes = data.num_nodes()
-        num_edges = data.num_edges()
-        num_features = data.ndata["feat"].shape[1]
-        num_classes = dataset.num_classes
-        num_train_nodes = data.ndata["train_mask"].sum().item()
-        num_val_nodes = data.ndata["val_mask"].sum().item()
-        num_test_nodes = data.ndata["test_mask"].sum().item()
-        print(f"Dataset: {dataset_name}")
-        print(f"Number of nodes: {num_nodes}")
-        print(f"Number of edges: {num_edges}")
-        print(f"Number of features: {num_features}")
-        print(f"Number of classes: {num_classes}")
-        print(f"Number of training nodes: {num_train_nodes}")
-        print(f"Number of validation nodes: {num_val_nodes}")
-        print(f"Number of test nodes: {num_test_nodes}")
-        print("---------------------------")
+    data = dataset[0]
+    num_nodes = data.num_nodes()
+    num_edges = data.num_edges()
+    num_features = data.ndata["feat"].shape[1]
+    num_classes = dataset.num_classes
+    num_train_nodes = data.ndata["train_mask"].sum().item()
+    num_val_nodes = data.ndata["val_mask"].sum().item()
+    num_test_nodes = data.ndata["test_mask"].sum().item()
+    print(f"Dataset: {dataset.name}")
+    print(f"Number of nodes: {num_nodes}")
+    print(f"Number of edges: {num_edges}")
+    print(f"Number of features: {num_features}")
+    print(f"Number of classes: {num_classes}")
+    print(f"Number of training nodes: {num_train_nodes}")
+    print(f"Number of validation nodes: {num_val_nodes}")
+    print(f"Number of test nodes: {num_test_nodes}")
+    print("---------------------------")
 
 
 def main():
-    # seed_everything(1024)
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    logging.getLogger("lightning").setLevel(logging.WARNING)
-
-    dataset = get_dataset("cora", "./data")
-    data = dataset[0]
-    npc = get_npc(data, 35)
-    x_cond, edges_cond, y_cond = get_g_cond(dataset, "transductive", 30, npc)
-
-    g_cond = dgl.graph(edges_cond, num_nodes=x_cond.shape[0])
-    g_cond.ndata["feat"] = x_cond
-    g_cond.ndata["label"] = y_cond
-    g_cond.ndata["train_mask"] = torch.ones(x_cond.shape[0], dtype=torch.bool)
-
-    datamodule = CondensedGraphDataModule(data, g_cond, observe_mode="transductive")
-
-    gnn = GCN(data.ndata["feat"].shape[1], dataset.num_classes)
-    model = LightningGNN(gnn, lr=0.01, wd=5e-4)
-    checkpoint_callback = ModelCheckpoint(mode="max", monitor="val_acc")
-    trainer = Trainer(
-        accelerator="gpu",
-        devices=1,
-        max_epochs=500,
-        check_val_every_n_epoch=1,
-        callbacks=checkpoint_callback,
-        enable_model_summary=False,
-        logger=False,
-    )
-    trainer.fit(model, datamodule)
-    ckpt_path = trainer.checkpoint_callback.best_model_path
-    test_acc = trainer.test(
-        model=model, datamodule=datamodule, ckpt_path=ckpt_path, verbose=True
-    )
+    dataset = get_raw_dataset("flickr", "./data")
+    dataset_statistic(dataset)
+    # npc = get_npc(data, 20, "original")
+    # print(npc)
+    # x_cond, edges_cond, y_cond = get_g_cond(dataset, "transductive", npc, "kCenter")
 
 
 if __name__ == "__main__":

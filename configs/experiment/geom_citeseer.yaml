@@ -1,0 +1,38 @@
+# @package _global_
+
+defaults:
+  - override /condenser: geom
+
+seed: 1113
+
+dataset:
+  dataset_name: citeseer
+
+condenser:
+  # student model
+  gnn:
+    dropout: 0.0
+
+  tester:
+    dropout: 0.3
+
+  validator:
+    dropout: 0.3
+
+  opt_feat:
+    lr: 1e-4
+
+  optim_lr: null # Adam, SGD, null
+  lr_lr: 1e-6
+  rand_start: true
+  start_epoch: 30
+  syn_steps: 300
+  expert_epochs: 600
+
+  expanding_window: true
+  window_left_epoch: 1
+  window_right_epoch: 20
+
+  soft_label: false
+  lr_label: 0.00005
+  alpha: 0.01

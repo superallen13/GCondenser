@@ -1,0 +1,37 @@
+_target_: graph_condenser.models.gdem.GDEM
+
+defaults:
+  - gnn: gcn
+  - validator: gcn_sparse
+  - tester: gcn_sparse
+
+lr_model: 1e-2
+wd_model: 5e-4
+lr_val: 1e-2
+wd_val: 5e-4
+lr_test: 1e-2
+wd_test: 5e-4
+
+observe_mode: transductive
+budget: 30
+label_distribution: original
+init_method: kcenter
+
+eigen_k: 30
+ratio: 1.0
+alpha: 1.0
+beta: 1e-5
+gamma: 1.0
+
+opt_eigenvec:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 1e-2
+
+opt_feat:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 1e-4
+
+update_epoch_adj: 5
+update_epoch_feat: 1

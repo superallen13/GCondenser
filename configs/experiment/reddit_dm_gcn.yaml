@@ -1,0 +1,27 @@
+# @package _global_
+
+defaults:
+  - override /condenser: dm
+
+dataset:
+  dataset_name: reddit
+  
+condenser:
+  observe_mode: inductive
+  budget: 153
+  label_distribution: original
+  init_method: kCenter
+
+  gnn:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_val:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  gnn_test:
+    _target_: graph_condenser.models.backbones.gcn.GCN
+
+  opt_feat:
+    lr: 0.02
+
+  loop_outer: 1

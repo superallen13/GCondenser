@@ -1,31 +1,21 @@
 _target_: graph_condenser.models.gcond.GCond
 
-observe_mode: transductive
-budget: 10
-label_distribution: original
-init_method: randomChoice
+defaults:
+  - gnn: gcn
+  - validator: gcn
+  - tester: gcn
 
-gnn:
-  _target_: graph_condenser.models.backbones.gcn.GCN
-  _partial_: true
-  dropout: 0.0
-lr_model: 1e-3
+lr_model: 1e-2
 wd_model: 5e-4
-
-val_mode: GNN
-gnn_val:
-  _target_: graph_condenser.models.backbones.gcn.GCN
-  _partial_: true
-  dropout: 0.0
-lr_val: 1e-3
+lr_val: 1e-2
 wd_val: 5e-4
-
-gnn_test:
-  _target_: graph_condenser.models.backbones.gcn.GCN
-  _partial_: true
-  dropout: 0.0
-lr_test: 1e-3
+lr_test: 1e-2
 wd_test: 5e-4
+
+observe_mode: transductive
+budget: 30
+label_distribution: original
+init_method: kcenter
 
 structure_generator:
   _target_: graph_condenser.models.components.feat_to_adj.StructureGenerator
@@ -36,14 +26,14 @@ structure_generator:
 opt_adj:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 1e-5
+  lr: 1e-4
 
 opt_feat:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 1e-5
+  lr: 1e-4
 
-loop_outer: 10
+loop_outer: 1
 loop_inner: 0
 
 update_epoch_adj: 10

@@ -5,7 +5,7 @@ import logging
 
 import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-from graph_condenser.data.utils import get_dataset
+from graph_condenser.data.utils import prepare_graph
 from graph_condenser.data.datamodule import DataModule
 from graph_condenser.models.backbones.gcn import GCN
 from graph_condenser.models.backbones.sgc import SGC
@@ -105,12 +105,11 @@ class TrajectoryBuffer:
 
     def get(self, epoch, rand_start=False):
         if rand_start:
-            start = range(0, epoch + 1, self.param_save_interval)
-            epoch = random.choice(start)
-            epoch = epoch // self.param_save_interval
+            start_epoch = random.randint(0, epoch)
         else:
-            epoch = epoch // self.param_save_interval
-        return self.expert_trajectory[epoch]
+            start_epoch = epoch
+        idx = start_epoch // self.param_save_interval
+        return self.expert_trajectory[idx]
 
 
 def main(args):
@@ -125,8 +124,7 @@ def main(args):
 
     print(f"Saving trajectories to {path}")
 
-    dataset = get_dataset(args.dataset, args.data_dir)
-    data = dataset[0]
+    data = prepare_graph(args.dataset, args.data_dir)
     datamodule = DataModule(data, args.observe_mode)
 
     trajectories = []
@@ -134,7 +132,7 @@ def main(args):
         if args.backbone == "gcn":
             gnn = GCN(
                 data.ndata["feat"].shape[1],
-                dataset.num_classes,
+                data.num_classes,
                 args.hid_size,
                 args.nlayers,
                 args.dropout,
@@ -142,7 +140,7 @@ def main(args):
         elif args.backbone == "sgc":
             gnn = SGC(
                 data.ndata["feat"].shape[1],
-                dataset.num_classes,
+                data.num_classes,
                 args.hid_size,
                 args.nlayers,
                 args.dropout,
@@ -177,6 +175,8 @@ def main(args):
 
 
 if __name__ == "__main__":
+    """ Usage: python graph_condenser/models/components/trajectories.py --dataset products --observe_mode transductive --backbone gcn
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="./data")
     parser.add_argument("--dataset", type=str, default="citeseer")
@@ -196,9 +196,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # suppress some logs from pytorch_lightning
-    logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
-    logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
+    # logging.getLogger("pytorch_lightning.utilities.rank_zero").setLevel(logging.WARNING)
+    # logging.getLogger("pytorch_lightning.accelerators.cuda").setLevel(logging.WARNING)
     logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    logging.getLogger("lightning").setLevel(logging.WARNING)
 
     main(args)

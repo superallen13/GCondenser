@@ -1,0 +1,66 @@
+_target_: graph_condenser.models.geom.GEOM
+
+defaults:
+  - gnn: gcn
+  - validator: gcn
+  - tester: gcn
+
+lr_model: 0.5
+lr_val: 1e-2
+wd_val: 5e-4
+lr_test: 1e-2
+wd_test: 5e-4
+
+observe_mode: transductive
+budget: 30
+label_distribution: original
+init_method: kcenter
+
+# teacher models' trajectories
+traj_buffer:
+  _target_: graph_condenser.models.components.trajectories_cl.TrajectoryBuffer
+  model: gcn
+  dropout: 0.5
+  lr: 0.001
+  wd: 5e-4
+  epochs: 1000
+  T: 250
+  lamb: 0.8
+  scheduler: root
+  param_save_interval: 10
+  traj_save_interval: 10
+  load_all: false
+  max_files: null
+  max_experts: null
+  traj_dir: ${paths.data_dir}/traj_cl/${dataset.dataset_name}
+  device: cuda:0
+
+# student model
+gnn:
+  dropout: 0.0
+
+tester:
+  dropout: 0.3
+
+validator:
+  dropout: 0.3
+
+opt_feat:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.0005
+
+optim_lr: null # Adam, SGD, null
+lr_lr: 1e-6
+rand_start: true
+start_epoch: 30
+syn_steps: 400
+expert_epochs: 350
+
+expanding_window: true
+window_left_epoch: 1
+window_right_epoch: 20
+
+soft_label: false
+lr_label: 0.00005
+alpha: 0.01

@@ -1,0 +1,3 @@
+_target_: graph_condenser.models.backbones.sgc.SGC
+_partial_: true
+dropout: 0.5
