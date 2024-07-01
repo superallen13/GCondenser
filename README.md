@@ -24,6 +24,7 @@ torch
 pytorch-lightning
 ogb  # fetech ogb datasets
 hydra  # configuration management
+hydra_colorlog  # hydra plugin for improved log
 rootutils
 rich
 ```
@@ -80,7 +81,7 @@ This script initiates an Optuna sweep process to find the optimal learning rates
 If you find this repo useful, please cite
 
 ```
-@inproceedings{GCondenser,
+@article{GCondenser,
   author    = {Yilun Liu and
                Ruihong Qiu and
                Zi Huang},
