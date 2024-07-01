@@ -246,23 +246,9 @@ class GDEM(Condenser):
             lr_test,
             wd_test,
         )
-        if preprocess_dir:
-            idx_lcc = np.load(f"{preprocess_dir}/idx_lcc.npy")
-            idx_train_lcc = np.load(f"{preprocess_dir}/idx_train_lcc.npy")
-            idx_map = np.load(f"{preprocess_dir}/idx_map.npy")
-
-            eigenvals_lcc, eigenvecs_lcc = load_eigen(preprocess_dir)
-        else:
-            idx_lcc, adj_norm_lcc, _ = get_largest_cc(g.edges(), g.number_of_nodes())
-            idx_train_lcc, idx_map = get_train_lcc(
-                idx_lcc=idx_lcc,
-                idx_train=g.ndata["train_mask"].nonzero().squeeze().numpy(),
-                y_full=g.ndata["label"],
-                num_nodes=g.number_of_nodes(),
-                num_classes=g.num_classes,
-            )
-            L_lcc = sp.eye(len(idx_lcc)) - adj_norm_lcc
-            eigenvals_lcc, eigenvecs_lcc = get_eigh(L_lcc)
+        idx_lcc, idx_train_lcc, idx_map, eigenvals_lcc, eigenvecs_lcc = self.preprocess(
+            g, preprocess_dir
+        )
 
         eigenvals_lcc = torch.FloatTensor(eigenvals_lcc)
         eigenvecs_lcc = torch.FloatTensor(eigenvecs_lcc)
@@ -294,6 +280,33 @@ class GDEM(Condenser):
         init_syn_eigenvecs = get_init_syn_eigenvecs(budget, g.num_classes)
         init_syn_eigenvecs = init_syn_eigenvecs[:, :eigen_k]
         self.eigenvecs_syn.data.copy_(init_syn_eigenvecs)
+
+    def preprocess(self, g, preprocess_dir: str = ""):
+        if preprocess_dir and os.path.exists(preprocess_dir):
+            idx_lcc = np.load(f"{preprocess_dir}/idx_lcc.npy")
+            idx_train_lcc = np.load(f"{preprocess_dir}/idx_train_lcc.npy")
+            idx_map = np.load(f"{preprocess_dir}/idx_map.npy")
+            eigenvals_lcc, eigenvecs_lcc = load_eigen(preprocess_dir)
+        else:
+            idx_lcc, adj_norm_lcc, _ = get_largest_cc(g.edges(), g.number_of_nodes())
+            idx_train_lcc, idx_map = get_train_lcc(
+                idx_lcc=idx_lcc,
+                idx_train=g.ndata["train_mask"].nonzero().squeeze().numpy(),
+                y_full=g.ndata["label"],
+                num_nodes=g.number_of_nodes(),
+                num_classes=g.num_classes,
+            )
+            L_lcc = sp.eye(len(idx_lcc)) - adj_norm_lcc
+            eigenvals_lcc, eigenvecs_lcc = get_eigh(L_lcc)
+            # save to preprocess_dir
+            if preprocess_dir:
+                os.makedirs(preprocess_dir, exist_ok=True)
+                np.save(f"{preprocess_dir}/idx_lcc.npy", idx_lcc)
+                np.save(f"{preprocess_dir}/idx_train_lcc.npy", idx_train_lcc)
+                np.save(f"{preprocess_dir}/idx_map.npy", idx_map)
+                np.save(f"{preprocess_dir}/eigenvalues.npy", eigenvals_lcc)
+                np.save(f"{preprocess_dir}/eigenvectors.npy", eigenvecs_lcc)
+        return idx_lcc, idx_train_lcc, idx_map, eigenvals_lcc, eigenvecs_lcc
 
     def training_step(self, data, batch_idx):
         opt_eigenvec, opt_feat = self.optimizers()

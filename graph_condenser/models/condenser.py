@@ -7,7 +7,6 @@ from graph_condenser.models.validators.sgc import SGCEvaluator
 from graph_condenser.models.validators.lightning_evaluator import LightningEvaluator
 from graph_condenser.models.components.gntk import GNTK
 
-
 import dgl
 import torch
 import torch.nn.functional as F
@@ -55,9 +54,6 @@ class Condenser(LightningModule):
         self.test_ckpt_dir = os.path.join(output_dir, "test_step_ckpt")
         if not os.path.exists(self.test_ckpt_dir):
             os.makedirs(self.test_ckpt_dir)
-
-    def forward(self):
-        raise NotImplementedError
 
     def on_train_start(self):
         self.val_acc_best.reset()
