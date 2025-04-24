@@ -57,7 +57,7 @@ class YourGraphCondenser(Condenser):
 ```
 
 ## Step Two
-Create a config file for pass nesscessary parameters for your method. For example, create a file `./configs/condenser/your_graph_condenser.yaml`:
+Create a config file to pass necessary parameters for your method. For example, create a file `./configs/condenser/your_graph_condenser.yaml`:
 ```yaml
 _target_: graph_condenser.models.your_graph_condenser.YourGraphCondenser
 
@@ -85,7 +85,7 @@ lr_feat: 1e-4  # this is your graph condenser's hyperparameter
 ```
 
 ## Step Three
-Run the following commad in your terminal.
+Run the following command in your terminal.
 ```bash
 python graph_condenser/train.py condenser=your_graph_condener
 ```
